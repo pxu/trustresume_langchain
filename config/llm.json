@@ -1,0 +1,8 @@
+{
+  "$comment": "LLM provider config for the TrustResume agents. Switch providers here (or override any field with env vars). provider: bedrock | openai | google | test. Bedrock (AWS Claude) is the default and uses AWS credentials, not an api_key. model=null uses the provider default. api_key is OPTIONAL and only for openai/google — prefer leaving it null and setting OPENAI_API_KEY / GOOGLE_API_KEY in the environment; do NOT commit a real key (see config/llm.local.json).",
+  "provider": "bedrock",
+  "model": null,
+  "api_key": null,
+  "aws_profile": "twdc-bedrock-central",
+  "aws_region": "us-west-2"
+}

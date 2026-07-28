@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# --- Candidate data & secrets (never commit real user documents or credentials) ---
+data/user_documents/
+data/processed/*
+!data/processed/.gitkeep
+data/embeddings/*
+!data/embeddings/.gitkeep
+chroma_data/
+*.db
+*.sqlite3
+
+# --- Local LLM config overlay (may hold an API key — never commit) ---
+config/llm.local.json
+
+# --- Tests / tooling ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- OS / IDE ---
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,81 @@
+[project]
+name = "trustresume"
+version = "0.1.0"
+description = "Evidence-based, ATS-friendly resume generation using RAG, multi-agent AI, and trust verification — LangChain/LangGraph/ChromaDB port."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain-core",
+    "langchain",
+    "langgraph",
+    "langchain-chroma",
+    "chromadb",
+    "fastembed",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-docx",
+    "boto3",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+]
+# Per-provider LLM SDKs, mirroring the original's lazy-import-per-branch
+# pattern in api/model_factory.py. Bedrock uses boto3 (already a core dep).
+providers = [
+    "langchain-aws",
+    "langchain-openai",
+    "langchain-google-genai",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# --- Tooling configuration -------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["trustresume", "tests"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["trustresume"]
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = ["boto3.*", "chromadb.*", "fastembed.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers -m 'not live'"
+markers = [
+    "live: end-to-end tests that boot a real uvicorn server and call it over HTTP",
+]
+
+[tool.coverage.run]
+source = ["src/trustresume"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
