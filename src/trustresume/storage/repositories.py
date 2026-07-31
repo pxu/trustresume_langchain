@@ -136,6 +136,18 @@ class DocumentRepository(_BaseRepository):
         )
         self._conn.commit()
 
+    def exists(self, *, user_id: str, document_id: str) -> bool:
+        """Whether ``document_id`` exists and is owned by ``user_id``.
+
+        A single indexed row check for the ownership gate on delete —
+        cheaper than fetching every column of every document a user has via
+        :meth:`list_for_user` just to scan for one id.
+        """
+        row = self._conn.execute(
+            "SELECT 1 FROM documents WHERE user_id = ? AND id = ?", (user_id, document_id)
+        ).fetchone()
+        return row is not None
+
     def list_for_user(self, user_id: str) -> list[sqlite3.Row]:
         """All documents owned by ``user_id``, newest first."""
         return self._conn.execute(

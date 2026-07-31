@@ -22,9 +22,24 @@ from typing import TypeVar
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
+# Re-exported so agents keep importing prompt-injection defense from this
+# module (their one shared entry point) even though the definitions
+# themselves live in trustresume.prompting — kept framework-independent
+# there so trust_verification/ (ADR-0004: zero LangChain dependency) can use
+# them too without pulling in langchain_core.
+from trustresume.prompting import UNTRUSTED_INPUT_NOTICE, wrap_untrusted
+
 # What every agent constructor accepts for its model. Kept in one alias so the
 # whole package presents a consistent injection point.
 ModelInput = BaseChatModel
+
+__all__ = [
+    "ModelInput",
+    "UNTRUSTED_INPUT_NOTICE",
+    "wrap_untrusted",
+    "with_structured_retry",
+    "ensure_type",
+]
 
 _T = TypeVar("_T")
 

@@ -173,7 +173,7 @@ class TrustResumeApp:
         Returns whether a document was actually found and removed, so the API
         layer can 404 rather than silently no-op on an unknown/foreign id.
         """
-        if not any(row["id"] == document_id for row in self._documents.list_for_user(user_id)):
+        if not self._documents.exists(user_id=user_id, document_id=document_id):
             return False
         self._ingestion.delete_document(user_id=user_id, document_id=document_id)
         return True
