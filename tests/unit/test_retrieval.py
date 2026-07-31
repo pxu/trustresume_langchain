@@ -9,6 +9,7 @@ another user's data.
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import chromadb
 import pytest
@@ -46,6 +47,47 @@ def _chunk(chunk_id: str, user_id: str, text: str) -> EvidenceChunk:
 def test_fakeEmbeddings_isEmbeddings(fake_embedder: FakeEmbeddings) -> None:
     assert isinstance(fake_embedder, Embeddings)
     assert isinstance(FastEmbedEmbeddings(), Embeddings)
+
+
+def test_fastEmbedEmbeddings_lazyLoadsModelOnFirstUse() -> None:
+    """The underlying ``fastembed`` model is mocked out here (a real load can
+    trigger a model download — this file stays offline per NFR-5); the real
+    model is exercised by ``test_fastEmbedEmbeddings_realModel_embedsText``
+    under the ``live`` marker instead. This test is about the *lazy-load*
+    contract: no model construction until the first ``embed_*`` call.
+    """
+    with patch("fastembed.TextEmbedding") as mock_cls:
+        mock_cls.return_value.embed.return_value = [[0.1, 0.2, 0.3]]
+
+        embedder = FastEmbedEmbeddings(model_name="some/model")
+        mock_cls.assert_not_called()  # constructing the wrapper loads nothing
+
+        vectors = embedder.embed_documents(["hello"])
+
+        mock_cls.assert_called_once_with(model_name="some/model")
+        assert vectors == [[0.1, 0.2, 0.3]]
+
+        embedder.embed_query("hello again")
+        mock_cls.assert_called_once()  # second call reuses the cached model
+
+
+def test_fastEmbedEmbeddings_embedQuery_delegatesToEmbedDocuments() -> None:
+    with patch("fastembed.TextEmbedding") as mock_cls:
+        mock_cls.return_value.embed.return_value = [[1.0, 2.0]]
+        embedder = FastEmbedEmbeddings()
+
+        assert embedder.embed_query("hello") == [1.0, 2.0]
+
+
+@pytest.mark.live
+def test_fastEmbedEmbeddings_realModel_embedsText() -> None:
+    """Loads the real fastembed model — may download it on first run; that's
+    exactly why this is ``live``-marked (deselected by default, per NFR-5)."""
+    embedder = FastEmbedEmbeddings()
+    vectors = embedder.embed_documents(["Built Python services on AWS."])
+    assert len(vectors) == 1
+    assert len(vectors[0]) == 384  # BAAI/bge-small-en-v1.5's dimension
+    assert all(isinstance(v, float) for v in vectors[0])
 
 
 def test_fakeEmbeddings_deterministicAndSized(fake_embedder: FakeEmbeddings) -> None:
@@ -86,6 +128,53 @@ def test_search_emptyCollection_returnsEmptySet(store: ChromaVectorStore) -> Non
     assert result.chunks == []
 
 
+def test_search_documentIdsFilter_restrictsToThoseDocuments(store: ChromaVectorStore) -> None:
+    c1 = EvidenceChunk(
+        chunk_id="c1",
+        user_id="u1",
+        document_id="d1",
+        document_type=DocumentType.RESUME,
+        text="Kubernetes expert here",
+    )
+    c2 = EvidenceChunk(
+        chunk_id="c2",
+        user_id="u1",
+        document_id="d2",
+        document_type=DocumentType.RESUME,
+        text="Kubernetes expert here too",
+    )
+    store.upsert_chunks([c1, c2])
+
+    scoped = store.search(user_id="u1", query="Kubernetes", limit=10, document_ids=["d1"])
+
+    assert [c.chunk_id for c in scoped.chunks] == ["c1"]
+
+
+def test_search_documentIdsFilter_stillScopedByUser(store: ChromaVectorStore) -> None:
+    """document_ids alone must not bypass user isolation — the $and filter
+    combines both conditions, not either.
+    """
+    store.upsert_chunks([_chunk("c1", "u1", "Kubernetes expert")])
+
+    result = store.search(user_id="u2", query="Kubernetes", limit=10, document_ids=["d1"])
+
+    assert result.chunks == []
+
+
+def test_search_emptyDocumentIdsList_shortCircuitsWithoutCallingChroma(
+    store: ChromaVectorStore,
+) -> None:
+    """An empty document_ids list must return empty without even querying
+    Chroma — an empty $in list is itself invalid there (verified separately),
+    not merely "matches nothing."
+    """
+    store.upsert_chunks([_chunk("c1", "u1", "Kubernetes expert")])
+
+    result = store.search(user_id="u1", query="Kubernetes", limit=10, document_ids=[])
+
+    assert result.chunks == []
+
+
 def test_upsert_emptyList_isNoOp(store: ChromaVectorStore) -> None:
     store.upsert_chunks([])  # must not raise
     assert store.search(user_id="u1", query="x").chunks == []
@@ -97,3 +186,11 @@ def test_deleteChunks_removesPoints(store: ChromaVectorStore) -> None:
 
     remaining = {c.chunk_id for c in store.search(user_id="u1", query="anything", limit=10).chunks}
     assert remaining == {"c2"}
+
+
+def test_deleteChunks_emptyList_isNoOp(store: ChromaVectorStore) -> None:
+    store.upsert_chunks([_chunk("c1", "u1", "keeper")])
+    store.delete_chunks([])  # must not raise
+
+    remaining = {c.chunk_id for c in store.search(user_id="u1", query="anything", limit=10).chunks}
+    assert remaining == {"c1"}

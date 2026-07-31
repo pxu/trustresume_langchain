@@ -13,6 +13,8 @@ import asyncio
 from collections.abc import Awaitable
 from typing import TypeVar
 
+import pytest
+
 from trustresume.models import (
     ATSReport,
     CandidateProfile,
@@ -38,7 +40,13 @@ def run(awaitable: Awaitable[_T]) -> _T:
 
 
 class FakeJobDescriptionAgent:
+    """Records how many times it was asked to extract a job posting."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def run(self, job_posting: str) -> JobDescription:
+        self.calls += 1
         return JobDescription(raw_text=job_posting, title="Engineer", keywords=["python"])
 
 
@@ -54,7 +62,13 @@ class FakeCandidateProfileService:
 
 
 class FakeRetrievalAgent:
-    async def run(self, *, user_id: str, job: JobDescription) -> EvidenceSet:
+    def __init__(self) -> None:
+        self.calls: list[list[str] | None] = []
+
+    async def run(
+        self, *, user_id: str, job: JobDescription, document_ids: list[str] | None = None
+    ) -> EvidenceSet:
+        self.calls.append(document_ids)
         return EvidenceSet(user_id=user_id, query="python", chunks=[])
 
 
@@ -175,6 +189,48 @@ def test_orchestrator_respectsCustomGate() -> None:
     assert state.iteration == 0
 
 
+def test_orchestrator_jobGiven_skipsExtractionAndCarriesJobIdThrough() -> None:
+    """A caller re-using a persisted JobDescription (run(job=...)) must skip
+    JobDescriptionAgent entirely — Orchestrator._analyze_job's no-op branch —
+    and job_id/document_ids must be carried through to _retrieve_evidence and
+    onto the final WorkflowState.
+    """
+    orch, _resume = _make(trust_scores=[95.0], ats_scores=[90.0])
+    job = JobDescription(raw_text="pre-extracted", title="Staff Engineer", keywords=["python"])
+
+    state = run(orch.run(user_id="u1", job=job, job_id="job-1", document_ids=["d1", "d2"]))
+
+    assert orch._job.calls == 0  # type: ignore[attr-defined]
+    assert state.job == job
+    assert state.job_id == "job-1"
+    assert orch._retrieval.calls == [["d1", "d2"]]  # type: ignore[attr-defined]
+
+
+def test_orchestrator_jobPostingGiven_legacyPathStillExtractsWithNoJobId() -> None:
+    orch, _resume = _make(trust_scores=[95.0], ats_scores=[90.0])
+
+    state = run(orch.run(user_id="u1", job_posting="Python role"))
+
+    assert orch._job.calls == 1  # type: ignore[attr-defined]
+    assert state.job_id is None
+    assert orch._retrieval.calls == [None]  # type: ignore[attr-defined]
+
+
+def test_orchestrator_neitherJobNorJobPosting_raisesValueError() -> None:
+    orch, _resume = _make(trust_scores=[95.0], ats_scores=[90.0])
+
+    with pytest.raises(ValueError, match="exactly one of job_posting or job"):
+        run(orch.run(user_id="u1"))
+
+
+def test_orchestrator_bothJobAndJobPosting_raisesValueError() -> None:
+    orch, _resume = _make(trust_scores=[95.0], ats_scores=[90.0])
+    job = JobDescription(raw_text="x")
+
+    with pytest.raises(ValueError, match="exactly one of job_posting or job"):
+        run(orch.run(user_id="u1", job_posting="role", job=job))
+
+
 # --- feedback generation ----------------------------------------------------
 
 
@@ -203,3 +259,21 @@ def test_buildFeedback_scoreOnlyFailure_stillActionable() -> None:
     ats = ATSReport(score=80.0)
     feedback = build_feedback(trust, ats)
     assert "Trust 40" in feedback
+
+
+def test_buildFeedback_partiallySupportedClaims_askedToSoften() -> None:
+    trust = TrustReport(
+        claims=[
+            VerifiedClaim(
+                text="Led a large team",
+                category=ClaimCategory.EXPERIENCE,
+                status=ClaimStatus.PARTIALLY_SUPPORTED,
+            ),
+        ],
+        score=60.0,
+    )
+    ats = ATSReport(score=90.0)
+
+    feedback = build_feedback(trust, ats)
+    assert "Soften these claims" in feedback
+    assert "Led a large team" in feedback

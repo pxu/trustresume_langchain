@@ -63,6 +63,22 @@ class WorkflowState(BaseModel):
     gate: QualityGate = Field(
         default_factory=QualityGate, description="Quality-gate config for this run."
     )
+    job_id: str | None = Field(
+        None,
+        description=(
+            "The persisted job this run was generated for, if any — None for "
+            "the legacy raw-job_posting-string generate() path with no "
+            "persisted Job entity behind it."
+        ),
+    )
+    resume_id: str | None = Field(
+        None,
+        description=(
+            "The id of the persisted resume row for this run's final draft, "
+            "set once TrustResumeApp._persist has written it. None until "
+            "then (or if persistence produced no scored draft to save)."
+        ),
+    )
 
     job: JobDescription | None = Field(None, description="Job Description output.")
     candidate_profile: CandidateProfile | None = Field(

@@ -17,26 +17,36 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from trustresume.models import CandidateProfile
 
-from .base import ModelInput
+from .base import (
+    UNTRUSTED_INPUT_NOTICE,
+    ModelInput,
+    ensure_type,
+    with_structured_retry,
+    wrap_untrusted,
+)
 
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT = f"""\
 You are a resume analyst. Extract a structured summary of the candidate \
 background you are given: their name if stated, a one-line professional \
 summary, the skills/technologies they have hands-on experience with, and \
 any certifications. Only extract what the document actually states — do \
-not invent experience."""
+not invent experience.
+
+{UNTRUSTED_INPUT_NOTICE}"""
 
 
 class CandidateProfileAgent:
     """Wraps a LangChain structured-output call that structures a candidate's background."""
 
     def __init__(self, model: ModelInput) -> None:
-        self._structured = model.with_structured_output(CandidateProfile)
+        self._structured = with_structured_retry(model, CandidateProfile)
 
     async def run(self, candidate_text: str) -> CandidateProfile:
         """Analyze concatenated candidate document text into a :class:`CandidateProfile`."""
         result = await self._structured.ainvoke(
-            [SystemMessage(_SYSTEM_PROMPT), HumanMessage(candidate_text)]
+            [
+                SystemMessage(_SYSTEM_PROMPT),
+                HumanMessage(wrap_untrusted("candidate_documents", candidate_text)),
+            ]
         )
-        assert isinstance(result, CandidateProfile)
-        return result
+        return ensure_type(result, CandidateProfile)

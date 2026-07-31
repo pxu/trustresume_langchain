@@ -17,6 +17,11 @@ data/processed/*
 !data/processed/.gitkeep
 data/embeddings/*
 !data/embeddings/.gitkeep
+# Real personal résumés used for manual RAG testing (scripts/manual_rag_test.py)
+# — data/sample_documents/ is otherwise synthetic-only (see data/README.md);
+# these two are real PII and must never reach GitHub.
+data/sample_documents/AI_Engineer_Resume.docx
+data/sample_documents/Senior_SDE_Resume.pdf
 chroma_data/
 *.db
 *.sqlite3
@@ -31,6 +36,7 @@ config/llm.local.json
 htmlcov/
 .coverage
 coverage.xml
+.playwright-mcp/
 
 # --- OS / IDE ---
 .DS_Store

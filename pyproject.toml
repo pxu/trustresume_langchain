@@ -7,15 +7,18 @@ requires-python = ">=3.11"
 dependencies = [
     "langchain-core",
     "langchain",
+    "langchain-text-splitters",
     "langgraph",
     "langchain-chroma",
     "chromadb",
     "fastembed",
     "fastapi",
     "uvicorn[standard]",
-    "python-docx",
+    "python-multipart",
+    "unstructured[pdf,docx]",
     "boto3",
     "python-dotenv",
+    "fpdf2",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +27,9 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
+    # Only used to build .docx fixtures in tests/unit/test_ingestion.py — the
+    # app itself parses .docx via the unstructured[docx] core dependency.
+    "python-docx",
 ]
 # Per-provider LLM SDKs, mirroring the original's lazy-import-per-branch
 # pattern in api/model_factory.py. Bedrock uses boto3 (already a core dep).
@@ -31,6 +37,12 @@ providers = [
     "langchain-aws",
     "langchain-openai",
     "langchain-google-genai",
+]
+# Streamlit frontend (src/trustresume/ui/) — a REST client over the FastAPI
+# backend, so it's an independent extra rather than a core dependency.
+ui = [
+    "streamlit",
+    "requests",
 ]
 
 [build-system]
@@ -45,6 +57,9 @@ where = ["src"]
 target-version = "py311"
 line-length = 100
 src = ["src", "tests"]
+# scripts/ holds throwaway manual test scripts (e.g. hardcoded resume text
+# for a one-off RAG smoke test) — not held to the same lint bar as src/tests.
+extend-exclude = ["scripts"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM"]
@@ -68,7 +83,15 @@ ignore_missing_imports = true
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-ra --strict-markers -m 'not live'"
+# Coverage runs on every `pytest` invocation (not just an opt-in extra flag)
+# and fails the run under the threshold — the offline suite is fast enough
+# (a few seconds) that this doesn't slow down the inner dev loop, and it's
+# the only way a coverage regression actually blocks CI rather than just
+# showing up in a report nobody reads.
+addopts = """
+    -ra --strict-markers -m 'not live'
+    --cov=src/trustresume --cov-report=term-missing --cov-fail-under=95
+"""
 markers = [
     "live: end-to-end tests that boot a real uvicorn server and call it over HTTP",
 ]
@@ -76,6 +99,11 @@ markers = [
 [tool.coverage.run]
 source = ["src/trustresume"]
 branch = true
+# poc/ is throwaway live-provider validation code (its own module docstring:
+# "not part of the TrustResume pipeline") — meaningfully testing it needs a
+# real LLM call, so it's exercised manually, the same reason test_api_live.py
+# is `live`-marked rather than covered here.
+omit = ["src/trustresume/poc/*"]
 
 [tool.coverage.report]
 show_missing = true

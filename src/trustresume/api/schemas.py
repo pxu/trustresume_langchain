@@ -9,16 +9,26 @@ Milestone M7 (React frontend + FastAPI backend).
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Annotated
 
-from trustresume.models import DocumentType, ResumeDraft, WorkflowState
+from pydantic import BaseModel, Field, StringConstraints
+
+from trustresume.models import DocumentType, EvidenceSet, ResumeDraft, WorkflowState
+
+# ``min_length=1`` alone accepts a whitespace-only string (e.g. " "), which
+# would sail through validation and then silently produce a document with
+# zero chunks, or a job/search query with nothing to extract or match.
+# ``strip_whitespace=True`` runs before the length check, so a whitespace-only
+# value has length 0 by the time it's checked — every user-supplied text
+# field below uses this, not a bare ``Field(..., min_length=1)``.
+NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class AddDocumentRequest(BaseModel):
     """Body for ingesting a document as text (React sends file contents)."""
 
-    filename: str = Field(..., min_length=1)
-    text: str = Field(..., min_length=1)
+    filename: NonEmptyStr
+    text: NonEmptyStr
     document_type: DocumentType = DocumentType.OTHER
 
 
@@ -33,7 +43,47 @@ class DocumentSummary(BaseModel):
 class GenerateRequest(BaseModel):
     """Body for a resume generation run."""
 
-    job_posting: str = Field(..., min_length=1)
+    job_posting: NonEmptyStr
+
+
+class SearchRequest(BaseModel):
+    """Body for an ad-hoc evidence search (outside a full generation run)."""
+
+    query: NonEmptyStr
+    limit: int = Field(default=5, ge=1, le=50)
+
+
+class EvidenceChunkView(BaseModel):
+    """One retrieved evidence chunk, for the search results view."""
+
+    chunk_id: str
+    document_type: str
+    source_document: str | None
+    text: str
+    score: float | None
+
+
+class SearchResponse(BaseModel):
+    """Ranked evidence chunks for a search query."""
+
+    query: str
+    chunks: list[EvidenceChunkView]
+
+    @classmethod
+    def from_evidence(cls, evidence: EvidenceSet) -> SearchResponse:
+        return cls(
+            query=evidence.query,
+            chunks=[
+                EvidenceChunkView(
+                    chunk_id=c.chunk_id,
+                    document_type=c.document_type.value,
+                    source_document=c.source_document,
+                    text=c.text,
+                    score=c.score,
+                )
+                for c in evidence.chunks
+            ],
+        )
 
 
 class ClaimView(BaseModel):
@@ -58,6 +108,7 @@ class GenerateResponse(BaseModel):
     iterations: int
     hallucinations: list[ClaimView]
     missing_keywords: list[str]
+    resume_id: str | None = None
 
     @classmethod
     def from_state(cls, state: WorkflowState) -> GenerateResponse:
@@ -78,4 +129,53 @@ class GenerateResponse(BaseModel):
                 ClaimView(text=c.text, category=c.category.value) for c in trust.hallucinations
             ],
             missing_keywords=ats.missing_keywords,
+            resume_id=state.resume_id,
         )
+
+
+class CreateJobRequest(BaseModel):
+    """Body for creating (or replacing, via PUT) a job."""
+
+    job_posting: NonEmptyStr
+
+
+class JobSummary(BaseModel):
+    """One stored job, for listing."""
+
+    id: str
+    title: str | None
+    company: str | None
+    summary: str | None
+    created_at: str
+
+
+class JobDetail(JobSummary):
+    """A single job's full extracted detail."""
+
+    raw_posting: str
+    seniority: str
+    required_skills: list[str]
+    preferred_skills: list[str]
+    responsibilities: list[str]
+    keywords: list[str]
+
+
+class ResumeSummary(BaseModel):
+    """One stored resume, for listing (no draft/export payload)."""
+
+    id: str
+    job_id: str | None
+    job_title: str | None
+    iteration: int
+    trust_score: float
+    ats_score: float
+    passed: bool
+    created_at: str
+
+
+class ResumeDetail(ResumeSummary):
+    """A single resume's full stored detail, including the draft itself."""
+
+    draft: ResumeDraft
+    rejection_reason: str | None
+    improvement_suggestions: str | None

@@ -1,0 +1,44 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Offline by default so `docker compose up` works with no credentials;
+      # override to bedrock/openai/google + creds for a real backend.
+      TRUSTRESUME_LLM_PROVIDER: ${TRUSTRESUME_LLM_PROVIDER:-test}
+      TRUSTRESUME_LLM_MODEL: ${TRUSTRESUME_LLM_MODEL:-}
+      TRUSTRESUME_AWS_PROFILE: ${TRUSTRESUME_AWS_PROFILE:-}
+      TRUSTRESUME_AWS_REGION: ${TRUSTRESUME_AWS_REGION:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      TRUSTRESUME_LOG_LEVEL: ${TRUSTRESUME_LOG_LEVEL:-INFO}
+    volumes:
+      # NOTE: init_db only runs CREATE TABLE/INDEX IF NOT EXISTS — there is
+      # no ALTER TABLE migration path in this project. A trustresume-data
+      # volume created before the job/resume-export schema changes (new
+      # jobs/job_documents tables, new documents/generated_resumes columns)
+      # will make the API fail at startup or on first write. Run
+      # `docker compose down -v` to drop this volume before starting on top
+      # of an old one — there is no in-place migration.
+      - trustresume-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  ui:
+    build:
+      context: .
+      target: ui
+    ports:
+      - "8501:8501"
+    environment:
+      TRUSTRESUME_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  trustresume-data:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -124,3 +125,49 @@ def test_buildModel_google_withConfiguredKey(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     model = build_model(LLMConfig(provider="google", model="gemini-1.5-flash", api_key="g-x"))
     assert model.model == "gemini-1.5-flash"  # type: ignore[attr-defined]
+
+
+def test_buildModel_google_fallsBackToEnvKey(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No configured key; the SDK reads GOOGLE_API_KEY from the environment.
+    monkeypatch.setenv("GOOGLE_API_KEY", "g-env-not-real")
+    model = build_model(LLMConfig(provider="google", model="gemini-1.5-flash"))
+    assert model.model == "gemini-1.5-flash"  # type: ignore[attr-defined]
+
+
+@patch("boto3.Session")
+def test_buildModel_bedrock_dispatchesToBuildBedrockModel(session_cls: MagicMock) -> None:
+    # boto3.Session mocked out — this test is about dispatch/argument wiring,
+    # not a real AWS round trip (constructing ChatBedrockConverse doesn't call
+    # AWS itself, but resolving a profile does read local AWS config, which
+    # varies by machine/CI — mocking keeps this deterministic). Note:
+    # ChatBedrockConverse itself opens a second internal Session/client (to
+    # probe streaming support), so we assert on our own call, not "called once".
+    session = session_cls.return_value
+    config = LLMConfig(
+        provider="bedrock", model="claude-x", aws_profile="myprofile", aws_region="eu-west-1"
+    )
+    model = build_model(config)
+
+    assert session_cls.call_args_list[0].kwargs == {
+        "profile_name": "myprofile",
+        "region_name": "eu-west-1",
+    }
+    session.client.assert_any_call("bedrock-runtime")
+    assert model.model_id == "claude-x"  # type: ignore[attr-defined]
+
+
+@patch("boto3.Session")
+def test_buildBedrockModel_usesModuleDefaultsWhenArgsOmitted(session_cls: MagicMock) -> None:
+    from trustresume.api.model_factory import (
+        BEDROCK_DEFAULT_PROFILE,
+        BEDROCK_DEFAULT_REGION,
+        build_bedrock_model,
+    )
+
+    model = build_bedrock_model()
+
+    assert session_cls.call_args_list[0].kwargs == {
+        "profile_name": BEDROCK_DEFAULT_PROFILE,
+        "region_name": BEDROCK_DEFAULT_REGION,
+    }
+    assert model.model_id == BEDROCK_DEFAULT_MODEL  # type: ignore[attr-defined]

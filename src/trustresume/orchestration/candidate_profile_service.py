@@ -19,9 +19,8 @@ Milestone M5 (orchestration).
 
 from __future__ import annotations
 
-import hashlib
-
 from trustresume.agents import CandidateProfileAgent
+from trustresume.ingestion.service import content_hash
 from trustresume.models import CandidateProfile
 from trustresume.storage import CandidateProfileRepository, ChunkRepository
 
@@ -48,7 +47,7 @@ class CandidateProfileService:
 
         text = self._assemble_candidate_text(user_id)
         profile = await self._agent.run(text)
-        self._profiles.upsert(user_id=user_id, profile=profile, doc_hash=self._hash(text))
+        self._profiles.upsert(user_id=user_id, profile=profile, doc_hash=content_hash(text))
         return profile
 
     def _assemble_candidate_text(self, user_id: str) -> str:
@@ -64,13 +63,3 @@ class CandidateProfileService:
         """
         rows = self._chunks.list_for_user(user_id)
         return "\n\n".join(row["text"] for row in rows)
-
-    @staticmethod
-    def _hash(text: str) -> str:
-        """A content hash recorded for diagnostics, not for the cache decision.
-
-        The cache gate is purely the ``stale`` flag (set by
-        ``IngestionService``); this hash just lets a debugger later confirm
-        whether the underlying text actually changed between two profiles.
-        """
-        return hashlib.sha256(text.encode()).hexdigest()

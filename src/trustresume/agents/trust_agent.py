@@ -30,7 +30,7 @@ from trustresume.trust_verification import (
     build_trust_report,
 )
 
-from .base import ModelInput
+from .base import ModelInput, ensure_type, with_structured_retry
 
 
 class _ClaimExtraction(BaseModel):
@@ -43,7 +43,7 @@ class TrustHarnessAgent:
     """Verifies a draft's claims against evidence and scores its trustworthiness."""
 
     def __init__(self, model: ModelInput) -> None:
-        self._structured = model.with_structured_output(_ClaimExtraction)
+        self._structured = with_structured_retry(model, _ClaimExtraction)
 
     async def run(
         self,
@@ -55,5 +55,30 @@ class TrustHarnessAgent:
         result = await self._structured.ainvoke(
             [SystemMessage(SYSTEM_PROMPT), HumanMessage(build_prompt(draft, evidence))]
         )
-        assert isinstance(result, _ClaimExtraction)
-        return build_trust_report(result.claims, iteration=draft.iteration)
+        claims = ensure_type(result, _ClaimExtraction).claims
+        claims = _drop_unknown_citations(claims, evidence)
+        return build_trust_report(claims, iteration=draft.iteration)
+
+
+def _drop_unknown_citations(
+    claims: list[VerifiedClaim], evidence: EvidenceSet
+) -> list[VerifiedClaim]:
+    """Strip any cited chunk id the model invented rather than actually retrieved.
+
+    The whole point of ``evidence_chunk_ids`` is an auditable trail from a
+    verdict back to real evidence (ADR-0004) — an unchecked id (hallucinated,
+    or copied from a different run) would be indistinguishable from a real
+    citation to anything reading the report. This doesn't downgrade the
+    claim's status (the model may have genuinely relied on evidence it cited
+    correctly alongside one bad id), it only removes citations that don't
+    resolve to a chunk actually in ``evidence``.
+    """
+    known_ids = {c.chunk_id for c in evidence.chunks}
+    return [
+        claim.model_copy(
+            update={
+                "evidence_chunk_ids": [cid for cid in claim.evidence_chunk_ids if cid in known_ids]
+            }
+        )
+        for claim in claims
+    ]

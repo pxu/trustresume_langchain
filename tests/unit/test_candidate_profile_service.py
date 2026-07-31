@@ -18,7 +18,8 @@ import chromadb
 
 from tests.fakes import FakeEmbeddings
 from trustresume.ingestion import IngestionService
-from trustresume.models import CandidateProfile
+from trustresume.ingestion.service import content_hash
+from trustresume.models import CandidateProfile, DocumentType, EvidenceChunk
 from trustresume.orchestration import CandidateProfileService
 from trustresume.retrieval import ChromaVectorStore
 from trustresume.storage import (
@@ -68,6 +69,33 @@ def test_getOrRefresh_noCacheYet_computesAndPersists(db: sqlite3.Connection) -> 
 
     assert profile.name == "Jordan Rivera"
     assert agent.calls == 1
+
+
+def test_getOrRefresh_persistsDocHash_usingSharedContentHashFunction(
+    db: sqlite3.Connection,
+) -> None:
+    """The diagnostic ``doc_hash`` recorded alongside the cached profile must
+    use the same hashing convention as ``IngestionService``'s dedup check
+    (``ingestion.service.content_hash``) — one shared function, not two
+    independently-written ``sha256(...)`` call sites that happen to agree.
+    """
+    service, _agent, chunks = _make(db)
+    doc_id = DocumentRepository(db).create(
+        user_id="u1",
+        filename="r.txt",
+        document_type=DocumentType.RESUME,
+        content_hash="unrelated-doc-hash",
+    )
+    chunks.add(
+        EvidenceChunk(chunk_id="c1", user_id="u1", document_id=doc_id, text="Python and AWS work."),
+        chunk_index=0,
+    )
+
+    run(service.get_or_refresh("u1"))
+
+    cached = service._profiles.get("u1")
+    assert cached is not None
+    assert cached.doc_hash == content_hash("Python and AWS work.")
 
 
 def test_getOrRefresh_documentsUnchanged_reusesCacheWithoutRecomputing(
