@@ -41,6 +41,46 @@ CREATE INDEX IF NOT EXISTS idx_documents_user ON documents (user_id);
 -- two uploads of "the same" document still count as a duplicate.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_user_content
     ON documents (user_id, content_hash);
+-- Filename identity is the *primary* dedup path (a same-named re-upload is
+-- treated as an update to the same logical document, in place); the
+-- content-hash index above remains the *fallback* for a never-before-seen
+-- filename whose content happens to byte-match an existing document. Both
+-- indexes coexist deliberately — see IngestionService.ingest_text.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_user_filename
+    ON documents (user_id, filename);
+
+-- A job posting the user is generating a resume against. The full LLM
+-- extraction (JobDescription) is stored as JSON for exact round-tripping;
+-- title/company/summary are flattened out for cheap listing without
+-- deserializing every row (same pattern generated_resumes.job_title uses).
+CREATE TABLE IF NOT EXISTS jobs (
+    id                   TEXT PRIMARY KEY,
+    user_id              TEXT NOT NULL,
+    title                TEXT,
+    company              TEXT,
+    summary              TEXT,
+    raw_posting          TEXT NOT NULL,
+    job_description_json TEXT NOT NULL,
+    created_at           TEXT NOT NULL,
+    updated_at           TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs (user_id);
+
+-- Many-to-many: a document can be linked to more than one job (e.g. the same
+-- résumé uploaded under two different job contexts), and a job can have any
+-- number of documents linked to it in addition to the user's generic
+-- (unlinked) document pool. Deleting either side cascades the link row only
+-- — never the document or job itself.
+CREATE TABLE IF NOT EXISTS job_documents (
+    job_id      TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (job_id, document_id),
+    FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_job_documents_document ON job_documents (document_id);
 
 CREATE TABLE IF NOT EXISTS chunks (
     chunk_id        TEXT PRIMARY KEY,
@@ -83,19 +123,30 @@ CREATE TRIGGER IF NOT EXISTS chunks_fts_update AFTER UPDATE ON chunks BEGIN
 END;
 
 CREATE TABLE IF NOT EXISTS generated_resumes (
-    id           TEXT PRIMARY KEY,
-    user_id      TEXT NOT NULL,
-    job_title    TEXT,
-    iteration    INTEGER NOT NULL,
-    summary      TEXT NOT NULL,
-    content_json TEXT NOT NULL,
-    trust_score  REAL NOT NULL,
-    ats_score    REAL NOT NULL,
-    passed       INTEGER NOT NULL,
-    created_at   TEXT NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    id                      TEXT PRIMARY KEY,
+    user_id                 TEXT NOT NULL,
+    job_id                  TEXT,
+    job_title               TEXT,
+    iteration               INTEGER NOT NULL,
+    summary                 TEXT NOT NULL,
+    content_json            TEXT NOT NULL,
+    trust_score             REAL NOT NULL,
+    ats_score               REAL NOT NULL,
+    passed                  INTEGER NOT NULL,
+    pdf_bytes               BLOB,
+    markdown_text           TEXT,
+    rejection_reason        TEXT,
+    improvement_suggestions TEXT,
+    created_at              TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    -- SET NULL, not CASCADE: deleting a job must not destroy the historical
+    -- record of resumes generated against it. job_title (flattened at
+    -- persist time, like job_id itself was before this column existed)
+    -- keeps the resume row meaningful even after its job is gone.
+    FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_resumes_user ON generated_resumes (user_id);
+CREATE INDEX IF NOT EXISTS idx_resumes_job ON generated_resumes (job_id);
 
 CREATE TABLE IF NOT EXISTS candidate_profiles (
     user_id      TEXT PRIMARY KEY,

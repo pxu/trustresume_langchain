@@ -18,6 +18,7 @@ dependencies = [
     "unstructured[pdf,docx]",
     "boto3",
     "python-dotenv",
+    "fpdf2",
 ]
 
 [project.optional-dependencies]

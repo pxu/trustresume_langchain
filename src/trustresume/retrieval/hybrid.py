@@ -59,13 +59,26 @@ class HybridRetriever:
         # might beat a chunk that only one source ranked #1.
         self._candidates_per_source = candidates_per_source
 
-    def search(self, *, user_id: str, query: str, limit: int = 5) -> EvidenceSet:
-        """Hybrid search scoped to ``user_id``: vector + keyword, fused by RRF."""
+    def search(
+        self, *, user_id: str, query: str, limit: int = 5, document_ids: list[str] | None = None
+    ) -> EvidenceSet:
+        """Hybrid search scoped to ``user_id``: vector + keyword, fused by RRF.
+
+        ``document_ids``, when given, is threaded into both underlying
+        searches unchanged — fusion itself needs no changes, since it only
+        ever sees each source's already-filtered candidate list.
+        """
         vector_hits = self._vectors.search(
-            user_id=user_id, query=query, limit=self._candidates_per_source
+            user_id=user_id,
+            query=query,
+            limit=self._candidates_per_source,
+            document_ids=document_ids,
         ).chunks
         keyword_rows = self._chunks.search_keywords(
-            user_id=user_id, query=query, limit=self._candidates_per_source
+            user_id=user_id,
+            query=query,
+            limit=self._candidates_per_source,
+            document_ids=document_ids,
         )
         keyword_chunks = [_row_to_chunk(row, user_id=user_id) for row in keyword_rows]
 

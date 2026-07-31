@@ -108,6 +108,7 @@ class GenerateResponse(BaseModel):
     iterations: int
     hallucinations: list[ClaimView]
     missing_keywords: list[str]
+    resume_id: str | None = None
 
     @classmethod
     def from_state(cls, state: WorkflowState) -> GenerateResponse:
@@ -128,4 +129,53 @@ class GenerateResponse(BaseModel):
                 ClaimView(text=c.text, category=c.category.value) for c in trust.hallucinations
             ],
             missing_keywords=ats.missing_keywords,
+            resume_id=state.resume_id,
         )
+
+
+class CreateJobRequest(BaseModel):
+    """Body for creating (or replacing, via PUT) a job."""
+
+    job_posting: NonEmptyStr
+
+
+class JobSummary(BaseModel):
+    """One stored job, for listing."""
+
+    id: str
+    title: str | None
+    company: str | None
+    summary: str | None
+    created_at: str
+
+
+class JobDetail(JobSummary):
+    """A single job's full extracted detail."""
+
+    raw_posting: str
+    seniority: str
+    required_skills: list[str]
+    preferred_skills: list[str]
+    responsibilities: list[str]
+    keywords: list[str]
+
+
+class ResumeSummary(BaseModel):
+    """One stored resume, for listing (no draft/export payload)."""
+
+    id: str
+    job_id: str | None
+    job_title: str | None
+    iteration: int
+    trust_score: float
+    ats_score: float
+    passed: bool
+    created_at: str
+
+
+class ResumeDetail(ResumeSummary):
+    """A single resume's full stored detail, including the draft itself."""
+
+    draft: ResumeDraft
+    rejection_reason: str | None
+    improvement_suggestions: str | None

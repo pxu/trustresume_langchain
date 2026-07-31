@@ -123,3 +123,107 @@ def test_listDocuments_raisesOnServerError(session_cls: MagicMock) -> None:
     client = TrustResumeClient("http://api:8000")
     with pytest.raises(requests.HTTPError):
         client.list_documents()
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_createJob_postsExpectedBodyAndReturnsBody(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    session.post.return_value = _mock_response({"id": "j1", "title": "Engineer"})
+
+    client = TrustResumeClient("http://api:8000")
+    result = client.create_job(job_posting="Senior Engineer role")
+
+    assert result == {"id": "j1", "title": "Engineer"}
+    _, kwargs = session.post.call_args
+    assert kwargs["json"] == {"job_posting": "Senior Engineer role"}
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_listJobs_getsExpectedUrlAndReturnsBody(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    session.get.return_value = _mock_response([{"id": "j1"}])
+
+    client = TrustResumeClient("http://api:8000")
+    result = client.list_jobs()
+
+    assert result == [{"id": "j1"}]
+    session.get.assert_called_once_with("http://api:8000/api/jobs", timeout=client.timeout)
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_uploadDocumentForJob_postsToExpectedUrlWithMultipartBody(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    session.post.return_value = _mock_response({"id": "d1", "filename": "r.txt"})
+
+    client = TrustResumeClient("http://api:8000")
+    result = client.upload_document_for_job(
+        job_id="j1", filename="r.txt", data=b"content", document_type="RESUME"
+    )
+
+    assert result == {"id": "d1", "filename": "r.txt"}
+    call = session.post.call_args
+    assert call.args[0] == "http://api:8000/api/jobs/j1/documents/upload"
+    assert call.kwargs["files"] == {"file": ("r.txt", b"content")}
+    assert call.kwargs["data"] == {"document_type": "RESUME"}
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_generateForJob_postsToExpectedUrl(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    session.post.return_value = _mock_response({"passed": True})
+
+    client = TrustResumeClient("http://api:8000")
+    result = client.generate_for_job(job_id="j1")
+
+    assert result == {"passed": True}
+    session.post.assert_called_once_with(
+        "http://api:8000/api/jobs/j1/generate", timeout=client.timeout
+    )
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_listResumesForJob_getsExpectedUrlAndReturnsBody(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    session.get.return_value = _mock_response([{"id": "r1"}])
+
+    client = TrustResumeClient("http://api:8000")
+    result = client.list_resumes_for_job(job_id="j1")
+
+    assert result == [{"id": "r1"}]
+    session.get.assert_called_once_with(
+        "http://api:8000/api/jobs/j1/resumes", timeout=client.timeout
+    )
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_downloadResumePdf_returnsRawBytes(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.content = b"%PDF-1.4 fake"
+    session.get.return_value = resp
+
+    client = TrustResumeClient("http://api:8000")
+    result = client.download_resume_pdf(resume_id="r1")
+
+    assert result == b"%PDF-1.4 fake"
+    session.get.assert_called_once_with(
+        "http://api:8000/api/resumes/r1/pdf", timeout=client.timeout
+    )
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_downloadResumeMarkdown_returnsText(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.text = "# Summary"
+    session.get.return_value = resp
+
+    client = TrustResumeClient("http://api:8000")
+    result = client.download_resume_markdown(resume_id="r1")
+
+    assert result == "# Summary"
+    session.get.assert_called_once_with(
+        "http://api:8000/api/resumes/r1/markdown", timeout=client.timeout
+    )

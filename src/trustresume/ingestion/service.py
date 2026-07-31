@@ -34,7 +34,12 @@ from collections.abc import Callable
 
 from trustresume.models import DocumentType, EvidenceChunk
 from trustresume.retrieval import ChromaVectorStore
-from trustresume.storage import CandidateProfileRepository, ChunkRepository, DocumentRepository
+from trustresume.storage import (
+    CandidateProfileRepository,
+    ChunkRepository,
+    DocumentRepository,
+    JobDocumentRepository,
+)
 
 from .chunker import chunk_text, clean_text
 from .parser import parse_bytes, parse_document
@@ -68,12 +73,14 @@ class IngestionService:
         chunks: ChunkRepository,
         vector_store: ChromaVectorStore,
         candidate_profiles: CandidateProfileRepository,
+        job_documents: JobDocumentRepository | None = None,
         id_factory: Callable[[], str] = lambda: uuid.uuid4().hex,
     ) -> None:
         self._documents = documents
         self._chunks = chunks
         self._vectors = vector_store
         self._candidate_profiles = candidate_profiles
+        self._job_documents = job_documents
         self._new_id = id_factory
 
     def ingest_text(
@@ -83,25 +90,125 @@ class IngestionService:
         filename: str,
         text: str,
         document_type: DocumentType = DocumentType.OTHER,
+        job_id: str | None = None,
     ) -> str:
         """Ingest already-extracted text; return the document id.
 
-        Deduplicates by content: if this user already has a document whose
-        *cleaned* text hashes identically (a re-upload of the same resume,
-        possibly re-exported/re-encoded), this is a no-op that returns the
-        existing document id — nothing is re-chunked, re-embedded, or
-        re-written in either store. Without this, uploading "the same"
-        resume twice would double every chunk in both SQLite and Chroma,
-        double-counting it in every future retrieval.
+        Identity/dedup is checked in two stages:
 
-        Order matters for a genuinely new document: the SQLite metadata rows
-        are written first, then the Chroma vectors. If embedding/upsert
-        fails, the SQLite rows are rolled back so the two stores don't drift
-        out of sync.
+        1. **Filename-first**: if this user already has a document with this
+           exact filename, the upload is treated as an update to that same
+           logical document, not a new one — regardless of which job (if
+           any) it's uploaded under. If the content is unchanged (same
+           cleaned-text hash), this is a no-op. If it differs, the document
+           is re-chunked and re-embedded *in place* (same ``document_id``,
+           so its job links and history survive) — see :meth:`_reindex_in_place`.
+        2. **Content-hash fallback**: for a filename never seen before, the
+           existing cross-filename dedup (same *cleaned* text, different
+           filename) still applies — a re-upload of "the same" document
+           under a new name is still recognized as a duplicate rather than
+           creating a second copy.
+
+        If ``job_id`` is given, the resolved document is linked to that job
+        (idempotently) regardless of which of the above paths resolved it —
+        a document can be linked to more than one job.
         """
+        if job_id is not None and self._job_documents is None:
+            raise ValueError(
+                "job_id was given but this IngestionService has no "
+                "job_documents collaborator injected to record the link"
+            )
+
         cleaned = clean_text(text)
         this_hash = content_hash(cleaned)
 
+        by_filename = self._documents.find_by_filename(user_id=user_id, filename=filename)
+        if by_filename is not None:
+            document_id = str(by_filename["id"])
+            if by_filename["content_hash"] == this_hash:
+                logger.info(
+                    "filename match, content unchanged, ingest skipped",
+                    extra={
+                        "user_id": user_id,
+                        "document_id": document_id,
+                        "doc_filename": filename,
+                    },
+                )
+            else:
+                self._reindex_in_place(
+                    user_id=user_id,
+                    document_id=document_id,
+                    filename=filename,
+                    document_type=document_type,
+                    cleaned=cleaned,
+                    this_hash=this_hash,
+                )
+            self._link_job(job_id, document_id)
+            return document_id
+
+        document_id = self._ingest_new_document(
+            user_id=user_id,
+            filename=filename,
+            document_type=document_type,
+            cleaned=cleaned,
+            this_hash=this_hash,
+        )
+        self._link_job(job_id, document_id)
+        return document_id
+
+    def _link_job(self, job_id: str | None, document_id: str) -> None:
+        """Associate ``document_id`` with ``job_id``, if one was given."""
+        if job_id is not None:
+            assert self._job_documents is not None  # checked in ingest_text
+            self._job_documents.link(job_id=job_id, document_id=document_id)
+
+    def _write_chunk_rows(
+        self,
+        *,
+        user_id: str,
+        document_id: str,
+        filename: str,
+        document_type: DocumentType,
+        pieces: list[str],
+    ) -> list[EvidenceChunk]:
+        """Build ``EvidenceChunk``s for freshly-chunked text and insert their SQLite rows.
+
+        Shared by the genuinely-new-document path and the re-index-in-place
+        path — both need "chunk text -> ``EvidenceChunk`` objects -> SQLite
+        rows"; they differ only in how they react to a subsequent Chroma
+        upsert failure, which stays in each caller.
+        """
+        evidence_chunks = [
+            EvidenceChunk(
+                chunk_id=self._new_id(),
+                user_id=user_id,
+                document_id=document_id,
+                document_type=document_type,
+                source_document=filename,
+                text=piece,
+            )
+            for piece in pieces
+        ]
+        for index, chunk in enumerate(evidence_chunks):
+            self._chunks.add(chunk, chunk_index=index)
+        return evidence_chunks
+
+    def _ingest_new_document(
+        self,
+        *,
+        user_id: str,
+        filename: str,
+        document_type: DocumentType,
+        cleaned: str,
+        this_hash: str,
+    ) -> str:
+        """The genuinely-new-document path: content-hash dedup, then create + write.
+
+        Reached only when :meth:`ingest_text` found no existing document
+        with this filename — falls back to the pre-existing content-hash
+        dedup so a re-upload of identical content under a never-before-seen
+        filename is still recognized as a duplicate.
+        """
         existing = self._documents.find_by_content_hash(user_id=user_id, content_hash=this_hash)
         if existing is not None:
             logger.info(
@@ -145,20 +252,13 @@ class IngestionService:
                 ) from exc
             return str(existing["id"])
 
-        evidence_chunks = [
-            EvidenceChunk(
-                chunk_id=self._new_id(),
-                user_id=user_id,
-                document_id=document_id,
-                document_type=document_type,
-                source_document=filename,
-                text=piece,
-            )
-            for piece in pieces
-        ]
-
-        for index, chunk in enumerate(evidence_chunks):
-            self._chunks.add(chunk, chunk_index=index)
+        evidence_chunks = self._write_chunk_rows(
+            user_id=user_id,
+            document_id=document_id,
+            filename=filename,
+            document_type=document_type,
+            pieces=pieces,
+        )
 
         try:
             self._vectors.upsert_chunks(evidence_chunks)
@@ -197,6 +297,71 @@ class IngestionService:
         self._candidate_profiles.mark_stale(user_id)
         return document_id
 
+    def _reindex_in_place(
+        self,
+        *,
+        user_id: str,
+        document_id: str,
+        filename: str,
+        document_type: DocumentType,
+        cleaned: str,
+        this_hash: str,
+    ) -> None:
+        """Re-chunk and re-embed a same-named document whose content changed.
+
+        Preserves ``document_id`` (and therefore its job links and any other
+        history keyed on it) rather than treating the upload as a new
+        document. Unlike :meth:`_ingest_new_document`'s rollback-on-failure,
+        a Chroma failure here can't cleanly restore the *old* chunks — they
+        were already deleted before the new ones were written, and there is
+        no cross-store transaction spanning SQLite and Chroma anywhere in
+        this codebase to make that atomic. This is an accepted, logged gap:
+        on failure the document's `content_hash` is left pointing at the old
+        content while its chunks are incomplete/absent, mirroring the same
+        "no cross-store transaction" pragmatism the create path already
+        accepts, just now also reachable on update.
+        """
+        old_chunk_ids = self._chunks.delete_for_document(user_id=user_id, document_id=document_id)
+        self._vectors.delete_chunks(old_chunk_ids)
+
+        pieces = chunk_text(cleaned)
+        evidence_chunks = self._write_chunk_rows(
+            user_id=user_id,
+            document_id=document_id,
+            filename=filename,
+            document_type=document_type,
+            pieces=pieces,
+        )
+
+        try:
+            self._vectors.upsert_chunks(evidence_chunks)
+        except Exception:
+            logger.exception(
+                "chroma upsert failed while re-indexing an updated document "
+                "in place; its old chunks were already removed",
+                extra={
+                    "user_id": user_id,
+                    "document_id": document_id,
+                    "chunks": len(evidence_chunks),
+                },
+            )
+            raise
+
+        self._documents.update_content_hash(
+            user_id=user_id, document_id=document_id, content_hash=this_hash, filename=filename
+        )
+        logger.info(
+            "document re-indexed in place",
+            extra={
+                "user_id": user_id,
+                "document_id": document_id,
+                "doc_filename": filename,
+                "document_type": document_type.value,
+                "chunks": len(evidence_chunks),
+            },
+        )
+        self._candidate_profiles.mark_stale(user_id)
+
     def ingest_file(
         self,
         *,
@@ -204,6 +369,7 @@ class IngestionService:
         path: str,
         document_type: DocumentType = DocumentType.OTHER,
         filename: str | None = None,
+        job_id: str | None = None,
     ) -> str:
         """Parse a file from disk and ingest it; return the new document id."""
         from pathlib import Path
@@ -214,6 +380,7 @@ class IngestionService:
             filename=filename or Path(path).name,
             text=text,
             document_type=document_type,
+            job_id=job_id,
         )
 
     def ingest_bytes(
@@ -223,6 +390,7 @@ class IngestionService:
         filename: str,
         data: bytes,
         document_type: DocumentType = DocumentType.OTHER,
+        job_id: str | None = None,
     ) -> str:
         """Parse an in-memory upload (e.g. a web multipart file) and ingest it.
 
@@ -237,6 +405,7 @@ class IngestionService:
             filename=filename,
             text=text,
             document_type=document_type,
+            job_id=job_id,
         )
 
     def delete_document(self, *, user_id: str, document_id: str) -> None:

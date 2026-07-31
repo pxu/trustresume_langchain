@@ -15,5 +15,6 @@ from __future__ import annotations
 from .candidate_profile_service import CandidateProfileService
 from .feedback import build_feedback
 from .orchestrator import Orchestrator
+from .rejection import build_rejection_reason
 
-__all__ = ["Orchestrator", "build_feedback", "CandidateProfileService"]
+__all__ = ["Orchestrator", "build_feedback", "build_rejection_reason", "CandidateProfileService"]

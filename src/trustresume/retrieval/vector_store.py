@@ -71,14 +71,42 @@ class ChromaVectorStore:
             ],
         )
 
-    def search(self, *, user_id: str, query: str, limit: int = 5) -> EvidenceSet:
+    def search(
+        self, *, user_id: str, query: str, limit: int = 5, document_ids: list[str] | None = None
+    ) -> EvidenceSet:
         """Semantic search scoped to ``user_id``.
 
         The ``filter`` kwarg is a server-side metadata filter — the sole
         mechanism enforcing per-user isolation (ADR-0001). Every call passes
         it; there is no filter-less search path.
+
+        ``document_ids``, when given, additionally restricts results to that
+        set (job-scoped retrieval — see
+        ``DocumentRepository.list_eligible_document_ids``). Chroma's filter
+        grammar rejects a flat multi-key dict (verified empirically: raises
+        ``ValueError``, "Expected where to have exactly one operator") — two
+        conditions must be combined via an explicit ``$and``. An empty
+        ``document_ids`` list is short-circuited to an empty result without
+        calling Chroma at all, since an empty ``$in`` list is itself invalid
+        there (also verified empirically) rather than trivially matching
+        nothing.
         """
-        hits = self._store.similarity_search_with_score(query, k=limit, filter={"user_id": user_id})
+        if document_ids is not None:
+            if not document_ids:
+                return EvidenceSet(user_id=user_id, query=query, chunks=[])
+            where: dict[str, object] = {
+                "$and": [{"user_id": user_id}, {"document_id": {"$in": document_ids}}]
+            }
+        else:
+            where = {"user_id": user_id}
+        # langchain-chroma's own stub types `filter` as dict[str, str] | None,
+        # narrower than the nested $and/$in dicts Chroma's filter grammar
+        # actually accepts and requires here (verified empirically).
+        hits = self._store.similarity_search_with_score(
+            query,
+            k=limit,
+            filter=where,  # type: ignore[arg-type]
+        )
 
         chunks = [
             EvidenceChunk(

@@ -27,7 +27,9 @@ class _Retriever(Protocol):
     ``HybridRetriever`` both satisfy this without either depending on the other.
     """
 
-    def search(self, *, user_id: str, query: str, limit: int) -> EvidenceSet: ...
+    def search(
+        self, *, user_id: str, query: str, limit: int, document_ids: list[str] | None = None
+    ) -> EvidenceSet: ...
 
 
 class EvidenceRetrievalAgent:
@@ -37,7 +39,22 @@ class EvidenceRetrievalAgent:
         self._retriever = retriever
         self._top_k = top_k
 
-    async def run(self, *, user_id: str, job: JobDescription) -> EvidenceSet:
-        """Retrieve the top-k evidence chunks for this user and job."""
+    async def run(
+        self,
+        *,
+        user_id: str,
+        job: JobDescription,
+        document_ids: list[str] | None = None,
+    ) -> EvidenceSet:
+        """Retrieve the top-k evidence chunks for this user and job.
+
+        ``document_ids``, when given, scopes retrieval to that set (job-scoped
+        retrieval) — resolved by the caller (e.g. the orchestrator, via
+        ``DocumentRepository.list_eligible_document_ids``), not by this agent:
+        keeps the agent's own dependency surface retrieval-only, with no new
+        SQLite/DocumentRepository dependency of its own.
+        """
         query = build_query(job)
-        return self._retriever.search(user_id=user_id, query=query, limit=self._top_k)
+        return self._retriever.search(
+            user_id=user_id, query=query, limit=self._top_k, document_ids=document_ids
+        )

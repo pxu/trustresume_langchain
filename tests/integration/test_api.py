@@ -14,12 +14,19 @@ from pathlib import Path
 import chromadb
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 
 from tests.fakes import FakeEmbeddings, FakeToolCallingChatModel
 from trustresume.api import TrustResumeApp, create_app
 from trustresume.storage import connect
 
-from .test_app_service import _FULL_GENERATION
+from .test_app_service import (
+    _CANDIDATE_PROFILE_CALL,
+    _FULL_GENERATION,
+    _JOB_DESCRIPTION_CALL,
+    _RESUME_DRAFT_CALL,
+    _TRUST_CALL,
+)
 
 
 @pytest.fixture
@@ -321,3 +328,214 @@ def test_buildServedApp_wiresRealAppFromEnv(
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+# --- job CRUD, job-scoped documents/generation, resume export routes ------
+
+
+def _client_with_scripted_calls(*call_groups: list[AIMessage]) -> TestClient:
+    messages = [msg for group in call_groups for msg in group]
+    facade = TrustResumeApp(
+        connection=connect(":memory:"),
+        chroma_client=chromadb.EphemeralClient(),
+        embedder=FakeEmbeddings(),
+        model=FakeToolCallingChatModel(messages=iter(messages)),
+        chroma_collection_name=f"test-{uuid.uuid4().hex}",
+    )
+    return TestClient(create_app(facade))
+
+
+def test_createJob_listJobs_getJob() -> None:
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL])
+
+    create_resp = client.post("/api/jobs", json={"job_posting": "Senior Python Engineer role"})
+    assert create_resp.status_code == 201
+    job = create_resp.json()
+    assert job["title"] == "Senior Python Engineer"
+
+    list_resp = client.get("/api/jobs")
+    assert list_resp.status_code == 200
+    assert len(list_resp.json()) == 1
+
+    get_resp = client.get(f"/api/jobs/{job['id']}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["keywords"] == ["python", "aws"]
+
+    assert client.get("/api/jobs/nonexistent").status_code == 404
+
+
+def test_updateJob_putReExtracts_missingReturns404() -> None:
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL, _JOB_DESCRIPTION_CALL])
+    job = client.post("/api/jobs", json={"job_posting": "Senior Python Engineer role"}).json()
+
+    resp = client.put(f"/api/jobs/{job['id']}", json={"job_posting": "Staff Python Engineer role"})
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "Senior Python Engineer"  # scripted extraction is fixed
+
+    assert client.put("/api/jobs/nonexistent", json={"job_posting": "x"}).status_code == 404
+
+
+def test_deleteJob_removesIt_missingReturns404() -> None:
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL])
+    job = client.post("/api/jobs", json={"job_posting": "role"}).json()
+
+    assert client.delete(f"/api/jobs/{job['id']}").status_code == 204
+    assert client.get(f"/api/jobs/{job['id']}").status_code == 404
+    assert client.delete(f"/api/jobs/{job['id']}").status_code == 404
+
+
+def test_uploadDocumentForJob_linksItAndListDocumentsForJobIncludesIt() -> None:
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL])
+    job = client.post("/api/jobs", json={"job_posting": "role"}).json()
+
+    resp = client.post(
+        f"/api/jobs/{job['id']}/documents/upload",
+        files={"file": ("resume.txt", b"Built Python services on AWS.", "text/plain")},
+        data={"document_type": "RESUME"},
+    )
+    assert resp.status_code == 201
+
+    docs_resp = client.get(f"/api/jobs/{job['id']}/documents")
+    assert docs_resp.status_code == 200
+    assert len(docs_resp.json()) == 1
+
+    assert (
+        client.post(
+            "/api/jobs/nonexistent/documents/upload",
+            files={"file": ("x.txt", b"content", "text/plain")},
+        ).status_code
+        == 404
+    )
+    assert client.get("/api/jobs/nonexistent/documents").status_code == 404
+
+
+def test_generateForJob_persistsAndExposesResumeId_missingJobReturns404() -> None:
+    client = _client_with_scripted_calls(
+        [_JOB_DESCRIPTION_CALL], [_CANDIDATE_PROFILE_CALL, _RESUME_DRAFT_CALL, _TRUST_CALL]
+    )
+    job = client.post("/api/jobs", json={"job_posting": "Senior Python Engineer role"}).json()
+    client.post(
+        f"/api/jobs/{job['id']}/documents/upload",
+        files={"file": ("resume.txt", b"Built Python services on AWS.", "text/plain")},
+    )
+
+    resp = client.post(f"/api/jobs/{job['id']}/generate")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["passed"] is True
+    assert body["resume_id"] is not None
+
+    assert client.post("/api/jobs/nonexistent/generate").status_code == 404
+
+
+def test_listResumesForJob_getResume_downloadPdfAndMarkdown() -> None:
+    client = _client_with_scripted_calls(_FULL_GENERATION)
+    job = client.post("/api/jobs", json={"job_posting": "Senior Python Engineer role"}).json()
+    client.post(
+        f"/api/jobs/{job['id']}/documents/upload",
+        files={"file": ("resume.txt", b"Built Python services on AWS.", "text/plain")},
+    )
+    resume_id = client.post(f"/api/jobs/{job['id']}/generate").json()["resume_id"]
+
+    resumes_resp = client.get(f"/api/jobs/{job['id']}/resumes")
+    assert resumes_resp.status_code == 200
+    assert len(resumes_resp.json()) == 1
+    assert client.get("/api/jobs/nonexistent/resumes").status_code == 404
+
+    detail_resp = client.get(f"/api/resumes/{resume_id}")
+    assert detail_resp.status_code == 200
+    assert "draft" in detail_resp.json()
+    assert client.get("/api/resumes/nonexistent").status_code == 404
+
+    pdf_resp = client.get(f"/api/resumes/{resume_id}/pdf")
+    assert pdf_resp.status_code == 200
+    assert pdf_resp.headers["content-type"] == "application/pdf"
+    assert pdf_resp.content[:5] == b"%PDF-"
+    assert client.get("/api/resumes/nonexistent/pdf").status_code == 404
+
+    md_resp = client.get(f"/api/resumes/{resume_id}/markdown")
+    assert md_resp.status_code == 200
+    assert md_resp.headers["content-type"].startswith("text/markdown")
+    assert "Skills" in md_resp.text
+    assert client.get("/api/resumes/nonexistent/markdown").status_code == 404
+
+
+def test_deleteJob_pastResumeStillDownloadable() -> None:
+    """A resume generated for a since-deleted job must remain fully servable
+    (get/pdf/markdown) — job deletion only nulls job_id on the resume row, it
+    never cascades to it.
+    """
+    client = _client_with_scripted_calls(_FULL_GENERATION)
+    job = client.post("/api/jobs", json={"job_posting": "role"}).json()
+    client.post(
+        f"/api/jobs/{job['id']}/documents/upload",
+        files={"file": ("resume.txt", b"Built Python services on AWS.", "text/plain")},
+    )
+    resume_id = client.post(f"/api/jobs/{job['id']}/generate").json()["resume_id"]
+
+    assert client.delete(f"/api/jobs/{job['id']}").status_code == 204
+
+    assert client.get(f"/api/resumes/{resume_id}").json()["job_id"] is None
+    assert client.get(f"/api/resumes/{resume_id}/pdf").status_code == 200
+
+
+def test_uploadDocumentForJob_emptyFile_returns422() -> None:
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL])
+    job = client.post("/api/jobs", json={"job_posting": "role"}).json()
+
+    resp = client.post(
+        f"/api/jobs/{job['id']}/documents/upload",
+        files={"file": ("resume.txt", b"", "text/plain")},
+    )
+    assert resp.status_code == 422
+
+
+def test_uploadDocumentForJob_overSizeLimit_returns413() -> None:
+    from trustresume.api.server import _MAX_UPLOAD_BYTES
+
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL])
+    job = client.post("/api/jobs", json={"job_posting": "role"}).json()
+
+    oversized = b"x" * (_MAX_UPLOAD_BYTES + 1)
+    resp = client.post(
+        f"/api/jobs/{job['id']}/documents/upload",
+        files={"file": ("resume.txt", oversized, "text/plain")},
+    )
+    assert resp.status_code == 413
+
+
+def test_uploadDocumentForJob_unsupportedType_returns422() -> None:
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL])
+    job = client.post("/api/jobs", json={"job_posting": "role"}).json()
+
+    resp = client.post(
+        f"/api/jobs/{job['id']}/documents/upload",
+        files={"file": ("image.png", b"\x89PNG", "image/png")},
+    )
+    assert resp.status_code == 422
+
+
+def test_generateForJob_noScoredDraftProduced_returns500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same facade-layer edge case as ``test_generate_noScoredDraftProduced_returns500``,
+    for the job-scoped generation route.
+    """
+    from trustresume.models import WorkflowState
+
+    facade = TrustResumeApp(
+        connection=connect(":memory:"),
+        chroma_client=chromadb.EphemeralClient(),
+        embedder=FakeEmbeddings(),
+        model=FakeToolCallingChatModel(messages=iter([_JOB_DESCRIPTION_CALL])),
+        chroma_collection_name=f"test-{uuid.uuid4().hex}",
+    )
+    test_client = TestClient(create_app(facade))
+    job_id = test_client.post("/api/jobs", json={"job_posting": "role"}).json()["id"]
+    monkeypatch.setattr(
+        facade, "generate_for_job", lambda *, user_id, job_id: WorkflowState(user_id=user_id)
+    )
+
+    resp = test_client.post(f"/api/jobs/{job_id}/generate")
+    assert resp.status_code == 500
+    assert "no scored draft" in resp.json()["detail"]

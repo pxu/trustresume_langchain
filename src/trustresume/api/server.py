@@ -18,19 +18,25 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from trustresume.ingestion import UnsupportedDocumentError
-from trustresume.models import DocumentType
+from trustresume.models import DocumentType, JobDescription, ResumeDraft
 
 from .app_service import TrustResumeApp
 from .schemas import (
     AddDocumentRequest,
+    CreateJobRequest,
     DocumentSummary,
     GenerateRequest,
     GenerateResponse,
+    JobDetail,
+    JobSummary,
+    ResumeDetail,
+    ResumeSummary,
     SearchRequest,
     SearchResponse,
 )
@@ -44,6 +50,63 @@ DEMO_USER_ID = "demo-user"
 # A résumé/job-posting upload has no legitimate reason to approach this;
 # caps memory use per upload instead of buffering an unbounded body.
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+def _job_summary_response(row: Any) -> JobSummary:
+    return JobSummary(
+        id=str(row["id"]),
+        title=row["title"],
+        company=row["company"],
+        summary=row["summary"],
+        created_at=str(row["created_at"]),
+    )
+
+
+def _job_detail_response(row: Any) -> JobDetail:
+    job = JobDescription.model_validate_json(row["job_description_json"])
+    return JobDetail(
+        id=str(row["id"]),
+        title=row["title"],
+        company=row["company"],
+        summary=row["summary"],
+        created_at=str(row["created_at"]),
+        raw_posting=str(row["raw_posting"]),
+        seniority=job.seniority.value,
+        required_skills=job.required_skills,
+        preferred_skills=job.preferred_skills,
+        responsibilities=job.responsibilities,
+        keywords=job.keywords,
+    )
+
+
+def _resume_summary_response(row: Any) -> ResumeSummary:
+    return ResumeSummary(
+        id=str(row["id"]),
+        job_id=row["job_id"],
+        job_title=row["job_title"],
+        iteration=int(row["iteration"]),
+        trust_score=float(row["trust_score"]),
+        ats_score=float(row["ats_score"]),
+        passed=bool(row["passed"]),
+        created_at=str(row["created_at"]),
+    )
+
+
+def _resume_detail_response(row: Any) -> ResumeDetail:
+    draft = ResumeDraft.model_validate_json(row["content_json"])
+    return ResumeDetail(
+        id=str(row["id"]),
+        job_id=row["job_id"],
+        job_title=row["job_title"],
+        iteration=int(row["iteration"]),
+        trust_score=float(row["trust_score"]),
+        ats_score=float(row["ats_score"]),
+        passed=bool(row["passed"]),
+        created_at=str(row["created_at"]),
+        draft=draft,
+        rejection_reason=row["rejection_reason"],
+        improvement_suggestions=row["improvement_suggestions"],
+    )
 
 
 def create_app(app_facade: TrustResumeApp) -> FastAPI:
@@ -196,6 +259,98 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
         if not found:
             raise HTTPException(status_code=404, detail="document not found")
 
+    @api.post("/api/jobs", response_model=JobSummary, status_code=201)
+    def create_job(req: CreateJobRequest) -> JobSummary:
+        """Persist a job posting, extracting its structured fields now.
+
+        Complements the legacy ``POST /api/generate`` (a raw posting string,
+        never persisted): a created job gets an id that can be listed,
+        inspected, re-used for scoped document uploads, and generated
+        against repeatedly without re-extracting each time.
+        """
+        row = app_facade.create_job(user_id=DEMO_USER_ID, job_posting=req.job_posting)
+        return _job_summary_response(row)
+
+    @api.get("/api/jobs", response_model=list[JobSummary])
+    def list_jobs() -> list[JobSummary]:
+        return [_job_summary_response(row) for row in app_facade.list_jobs(DEMO_USER_ID)]
+
+    @api.get("/api/jobs/{job_id}", response_model=JobDetail)
+    def get_job(job_id: str) -> JobDetail:
+        row = app_facade.get_job(user_id=DEMO_USER_ID, job_id=job_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return _job_detail_response(row)
+
+    @api.put("/api/jobs/{job_id}", response_model=JobDetail)
+    def update_job(job_id: str, req: CreateJobRequest) -> JobDetail:
+        """Replace a job's posting text and re-extract it."""
+        row = app_facade.update_job(
+            user_id=DEMO_USER_ID, job_id=job_id, job_posting=req.job_posting
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return _job_detail_response(row)
+
+    @api.delete("/api/jobs/{job_id}", status_code=204)
+    def delete_job(job_id: str) -> None:
+        """Delete a job. Past resumes generated for it are kept (job_id -> NULL)."""
+        found = app_facade.delete_job(user_id=DEMO_USER_ID, job_id=job_id)
+        if not found:
+            raise HTTPException(status_code=404, detail="job not found")
+
+    @api.post(
+        "/api/jobs/{job_id}/documents/upload", response_model=DocumentSummary, status_code=201
+    )
+    async def upload_document_for_job(
+        job_id: str,
+        file: UploadFile = File(...),  # noqa: B008
+        document_type: DocumentType = Form(DocumentType.OTHER),  # noqa: B008
+    ) -> DocumentSummary:
+        """Upload a document and link it to a job in one step.
+
+        Same size/parse-error handling as ``POST /api/documents/upload``;
+        additionally 404s if ``job_id`` doesn't exist or isn't owned by the
+        demo user, checked before any parsing/ingestion happens.
+        """
+        data = await file.read(_MAX_UPLOAD_BYTES + 1)
+        if not data:
+            raise HTTPException(status_code=422, detail="uploaded file is empty")
+        if len(data) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"uploaded file exceeds the {_MAX_UPLOAD_BYTES} byte limit",
+            )
+        try:
+            doc_id = app_facade.upload_document_for_job(
+                user_id=DEMO_USER_ID,
+                job_id=job_id,
+                filename=file.filename or "upload",
+                data=data,
+                document_type=document_type,
+            )
+        except UnsupportedDocumentError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if doc_id is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return DocumentSummary(
+            id=doc_id, filename=file.filename or "upload", document_type=document_type.value
+        )
+
+    @api.get("/api/jobs/{job_id}/documents", response_model=list[DocumentSummary])
+    def list_documents_for_job(job_id: str) -> list[DocumentSummary]:
+        """Documents eligible for this job: the demo user's generic (unlinked)
+        pool, plus any documents explicitly linked to this job."""
+        docs = app_facade.list_documents_for_job(user_id=DEMO_USER_ID, job_id=job_id)
+        if docs is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return [
+            DocumentSummary(
+                id=str(d["id"]), filename=str(d["filename"]), document_type=str(d["document_type"])
+            )
+            for d in docs
+        ]
+
     @api.post("/api/search", response_model=SearchResponse)
     def search(req: SearchRequest) -> SearchResponse:
         """Ad-hoc semantic search over the demo user's own ingested evidence.
@@ -219,6 +374,55 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
         except ValueError as exc:  # no scored draft produced
             logger.exception("generate produced no scored draft", extra={"user_id": DEMO_USER_ID})
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @api.post("/api/jobs/{job_id}/generate", response_model=GenerateResponse)
+    def generate_for_job(job_id: str) -> GenerateResponse:
+        """Generate against a persisted job, scoped to its eligible documents.
+
+        Re-uses the job's already-extracted ``JobDescription`` — no
+        re-extraction — and retrieves only from the generic pool plus
+        whatever's linked to this job, not every document the demo user owns.
+        """
+        logger.info("generate-for-job requested", extra={"user_id": DEMO_USER_ID, "job_id": job_id})
+        state = app_facade.generate_for_job(user_id=DEMO_USER_ID, job_id=job_id)
+        if state is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        try:
+            return GenerateResponse.from_state(state)
+        except ValueError as exc:  # no scored draft produced
+            logger.exception(
+                "generate-for-job produced no scored draft",
+                extra={"user_id": DEMO_USER_ID, "job_id": job_id},
+            )
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @api.get("/api/jobs/{job_id}/resumes", response_model=list[ResumeSummary])
+    def list_resumes_for_job(job_id: str) -> list[ResumeSummary]:
+        rows = app_facade.list_resumes_for_job(user_id=DEMO_USER_ID, job_id=job_id)
+        if rows is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return [_resume_summary_response(row) for row in rows]
+
+    @api.get("/api/resumes/{resume_id}", response_model=ResumeDetail)
+    def get_resume(resume_id: str) -> ResumeDetail:
+        row = app_facade.get_resume(user_id=DEMO_USER_ID, resume_id=resume_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="resume not found")
+        return _resume_detail_response(row)
+
+    @api.get("/api/resumes/{resume_id}/pdf")
+    def download_resume_pdf(resume_id: str) -> Response:
+        row = app_facade.get_resume(user_id=DEMO_USER_ID, resume_id=resume_id)
+        if row is None or row["pdf_bytes"] is None:
+            raise HTTPException(status_code=404, detail="resume not found")
+        return Response(content=bytes(row["pdf_bytes"]), media_type="application/pdf")
+
+    @api.get("/api/resumes/{resume_id}/markdown")
+    def download_resume_markdown(resume_id: str) -> Response:
+        row = app_facade.get_resume(user_id=DEMO_USER_ID, resume_id=resume_id)
+        if row is None or row["markdown_text"] is None:
+            raise HTTPException(status_code=404, detail="resume not found")
+        return Response(content=str(row["markdown_text"]), media_type="text/markdown")
 
     return api
 

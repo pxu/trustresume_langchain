@@ -128,6 +128,53 @@ def test_search_emptyCollection_returnsEmptySet(store: ChromaVectorStore) -> Non
     assert result.chunks == []
 
 
+def test_search_documentIdsFilter_restrictsToThoseDocuments(store: ChromaVectorStore) -> None:
+    c1 = EvidenceChunk(
+        chunk_id="c1",
+        user_id="u1",
+        document_id="d1",
+        document_type=DocumentType.RESUME,
+        text="Kubernetes expert here",
+    )
+    c2 = EvidenceChunk(
+        chunk_id="c2",
+        user_id="u1",
+        document_id="d2",
+        document_type=DocumentType.RESUME,
+        text="Kubernetes expert here too",
+    )
+    store.upsert_chunks([c1, c2])
+
+    scoped = store.search(user_id="u1", query="Kubernetes", limit=10, document_ids=["d1"])
+
+    assert [c.chunk_id for c in scoped.chunks] == ["c1"]
+
+
+def test_search_documentIdsFilter_stillScopedByUser(store: ChromaVectorStore) -> None:
+    """document_ids alone must not bypass user isolation — the $and filter
+    combines both conditions, not either.
+    """
+    store.upsert_chunks([_chunk("c1", "u1", "Kubernetes expert")])
+
+    result = store.search(user_id="u2", query="Kubernetes", limit=10, document_ids=["d1"])
+
+    assert result.chunks == []
+
+
+def test_search_emptyDocumentIdsList_shortCircuitsWithoutCallingChroma(
+    store: ChromaVectorStore,
+) -> None:
+    """An empty document_ids list must return empty without even querying
+    Chroma — an empty $in list is itself invalid there (verified separately),
+    not merely "matches nothing."
+    """
+    store.upsert_chunks([_chunk("c1", "u1", "Kubernetes expert")])
+
+    result = store.search(user_id="u1", query="Kubernetes", limit=10, document_ids=[])
+
+    assert result.chunks == []
+
+
 def test_upsert_emptyList_isNoOp(store: ChromaVectorStore) -> None:
     store.upsert_chunks([])  # must not raise
     assert store.search(user_id="u1", query="x").chunks == []

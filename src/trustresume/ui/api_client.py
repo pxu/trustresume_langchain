@@ -66,3 +66,55 @@ class TrustResumeClient:
         )
         resp.raise_for_status()
         return cast(dict[str, Any], resp.json())
+
+    def create_job(self, *, job_posting: str) -> dict[str, Any]:
+        resp = self._session.post(
+            f"{self.base_url}/api/jobs",
+            json={"job_posting": job_posting},
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return cast(dict[str, Any], resp.json())
+
+    def list_jobs(self) -> list[dict[str, Any]]:
+        resp = self._session.get(f"{self.base_url}/api/jobs", timeout=self.timeout)
+        resp.raise_for_status()
+        return cast(list[dict[str, Any]], resp.json())
+
+    def upload_document_for_job(
+        self, *, job_id: str, filename: str, data: bytes, document_type: str
+    ) -> dict[str, Any]:
+        resp = self._session.post(
+            f"{self.base_url}/api/jobs/{job_id}/documents/upload",
+            files={"file": (filename, data)},
+            data={"document_type": document_type},
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return cast(dict[str, Any], resp.json())
+
+    def generate_for_job(self, *, job_id: str) -> dict[str, Any]:
+        resp = self._session.post(
+            f"{self.base_url}/api/jobs/{job_id}/generate", timeout=self.timeout
+        )
+        resp.raise_for_status()
+        return cast(dict[str, Any], resp.json())
+
+    def list_resumes_for_job(self, *, job_id: str) -> list[dict[str, Any]]:
+        resp = self._session.get(f"{self.base_url}/api/jobs/{job_id}/resumes", timeout=self.timeout)
+        resp.raise_for_status()
+        return cast(list[dict[str, Any]], resp.json())
+
+    def download_resume_pdf(self, *, resume_id: str) -> bytes:
+        resp = self._session.get(
+            f"{self.base_url}/api/resumes/{resume_id}/pdf", timeout=self.timeout
+        )
+        resp.raise_for_status()
+        return resp.content
+
+    def download_resume_markdown(self, *, resume_id: str) -> str:
+        resp = self._session.get(
+            f"{self.base_url}/api/resumes/{resume_id}/markdown", timeout=self.timeout
+        )
+        resp.raise_for_status()
+        return resp.text

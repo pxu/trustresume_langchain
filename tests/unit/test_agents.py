@@ -123,6 +123,41 @@ def test_retrievalAgent_buildsQueryAndReturnsUserChunks(
     assert [c.chunk_id for c in evidence.chunks] == ["c1"]
 
 
+def test_retrievalAgent_documentIdsFilter_scopesRetrieval(
+    fake_embedder: FakeEmbeddings,
+) -> None:
+    """document_ids, when given, must be threaded straight through to the
+    retriever — this agent has no logic of its own for it, only pass-through.
+    """
+    store = ChromaVectorStore(chromadb.EphemeralClient(), fake_embedder, collection_name="test-t1b")
+    store.upsert_chunks(
+        [
+            EvidenceChunk(
+                chunk_id="c1",
+                user_id="u1",
+                document_id="d1",
+                document_type=DocumentType.RESUME,
+                text="Python and AWS backend work",
+            ),
+            EvidenceChunk(
+                chunk_id="c2",
+                user_id="u1",
+                document_id="d2",
+                document_type=DocumentType.RESUME,
+                text="Python and AWS backend work too",
+            ),
+        ]
+    )
+    agent = EvidenceRetrievalAgent(store, top_k=5)
+    job = JobDescription(raw_text="jd", required_skills=["Python", "AWS"])
+
+    scoped = run(agent.run(user_id="u1", job=job, document_ids=["d1"]))
+    unscoped = run(agent.run(user_id="u1", job=job))
+
+    assert [c.chunk_id for c in scoped.chunks] == ["c1"]
+    assert {c.chunk_id for c in unscoped.chunks} == {"c1", "c2"}
+
+
 def test_retrievalAgent_fallsBackToRawTextWhenNoStructuredFields(
     fake_embedder: FakeEmbeddings,
 ) -> None:

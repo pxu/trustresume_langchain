@@ -153,6 +153,39 @@ def test_hybridRetriever_isolatesUsers(db: sqlite3.Connection, retriever: Hybrid
     assert result.chunks == []
 
 
+def test_hybridRetriever_documentIdsFilter_threadsToBothVectorAndKeywordSearch(
+    db: sqlite3.Connection, retriever: HybridRetriever
+) -> None:
+    """document_ids must scope both halves of the fusion — a chunk from an
+    ineligible document must not surface via the keyword side even if it
+    would win on vector similarity (or vice versa).
+    """
+    UserRepository(db).create("A", user_id="u1")
+    docs = DocumentRepository(db)
+    doc1 = docs.create(
+        user_id="u1", filename="a.txt", document_type=DocumentType.RESUME, content_hash="h1"
+    )
+    doc2 = docs.create(
+        user_id="u1", filename="b.txt", document_type=DocumentType.RESUME, content_hash="h2"
+    )
+    _ingest(
+        db,
+        retriever,
+        EvidenceChunk(chunk_id="c1", user_id="u1", document_id=doc1, text="Kubernetes expert"),
+    )
+    _ingest(
+        db,
+        retriever,
+        EvidenceChunk(chunk_id="c2", user_id="u1", document_id=doc2, text="Kubernetes expert too"),
+    )
+
+    scoped = retriever.search(user_id="u1", query="Kubernetes", limit=10, document_ids=[doc1])
+    empty = retriever.search(user_id="u1", query="Kubernetes", limit=10, document_ids=[])
+
+    assert [c.chunk_id for c in scoped.chunks] == ["c1"]
+    assert empty.chunks == []
+
+
 def test_hybridRetriever_respectsLimit(db: sqlite3.Connection, retriever: HybridRetriever) -> None:
     UserRepository(db).create("A", user_id="u1")
     doc_id = DocumentRepository(db).create(

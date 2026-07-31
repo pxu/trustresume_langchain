@@ -258,6 +258,20 @@ it's throwaway live-provider validation code by its own module docstring,
 so meaningfully testing it needs a real LLM call — the same reasoning behind
 the `live` marker.
 
+## Schema changes have no migration tooling
+
+`storage/schema.py`'s `init_db` only ever runs `CREATE TABLE/INDEX IF NOT
+EXISTS` — there is no `ALTER TABLE` migration path anywhere in this project.
+A schema change (new table, new column) is invisible to `init_db` against a
+database file created before that change; the first write that touches the
+new column fails at runtime ("no column named ...") rather than at startup.
+**Delete `trustresume.db`/`chroma_data` locally, or run `docker compose down
+-v` to drop the `trustresume-data` volume, before running code with schema
+changes against data from an earlier version.** This is an accepted,
+deliberate gap for a personal-project scale (see `docker-compose.yml`'s
+comment on the same volume) — add real migrations only if this ever needs
+to preserve data across a schema change in practice.
+
 ## Conventions
 
 - No commits unless explicitly asked.

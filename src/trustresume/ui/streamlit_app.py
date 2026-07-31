@@ -12,14 +12,17 @@ Run (with the backend already up, e.g. ``docker compose up`` or the offline
 
     streamlit run src/trustresume/ui/streamlit_app.py
 
-Three tabs, matching the three things a candidate does with the app:
-Documents (upload career evidence), Generate (run the full RAG + multi-agent
-pipeline against a job posting), Search (inspect retrieval directly).
+Four tabs, matching the things a candidate does with the app: Documents
+(upload career evidence), Generate (run the full RAG + multi-agent pipeline
+against a one-off job posting, no persistence), Jobs (persist a job, upload
+job-scoped documents, generate against it repeatedly, browse/download past
+resumes), Search (inspect retrieval directly).
 """
 
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import requests
 import streamlit as st
@@ -90,8 +93,45 @@ def _render_documents_tab(client: TrustResumeClient) -> None:
                     st.rerun()
 
 
+def _render_generation_result(result: dict[str, Any]) -> None:
+    """Shared rendering for a ``GenerateResponse``-shaped dict.
+
+    Used by both the one-off Generate tab and the Jobs tab's
+    "Generate for this job" action — factored out so the two don't
+    duplicate the same score/draft/hallucination/keyword panel.
+    """
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Trust score", f"{result['trust_score']:.0f}")
+    col2.metric("ATS score", f"{result['ats_score']:.0f}")
+    col3.metric("Iterations", result["iterations"])
+
+    if result["passed"]:
+        st.success("Passed the quality gate.")
+    elif result["exhausted"]:
+        st.warning("Hit the rewrite cap without passing — showing the last draft anyway.")
+
+    draft = result["draft"]
+    st.subheader("Draft")
+    if draft["summary"]:
+        st.write(draft["summary"])
+    for section in draft["sections"]:
+        st.markdown(f"**{section['heading']}**")
+        for bullet in section["bullets"]:
+            st.markdown(f"- {bullet}")
+
+    if result["hallucinations"]:
+        st.subheader("⚠️ Unsupported claims (flagged by the Trust Harness)")
+        for claim in result["hallucinations"]:
+            st.markdown(f"- *{claim['category']}*: {claim['text']}")
+
+    if result["missing_keywords"]:
+        st.subheader("Missing ATS keywords")
+        st.write(", ".join(result["missing_keywords"]))
+
+
 def _render_generate_tab(client: TrustResumeClient) -> None:
     st.subheader("Generate a tailored, evidence-checked resume")
+    st.caption("One-off: not persisted. To save the result and reuse the job, use the Jobs tab.")
     job_posting = st.text_area("Job posting", height=200, placeholder="Paste the job posting…")
     if st.button("Generate", type="primary", disabled=not job_posting.strip()):
         with st.spinner("Running the pipeline — job analysis, retrieval, writing, verification…"):
@@ -103,34 +143,7 @@ def _render_generate_tab(client: TrustResumeClient) -> None:
             except requests.RequestException as exc:
                 st.error(f"Could not reach the backend: {exc}")
                 return
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Trust score", f"{result['trust_score']:.0f}")
-        col2.metric("ATS score", f"{result['ats_score']:.0f}")
-        col3.metric("Iterations", result["iterations"])
-
-        if result["passed"]:
-            st.success("Passed the quality gate.")
-        elif result["exhausted"]:
-            st.warning("Hit the rewrite cap without passing — showing the last draft anyway.")
-
-        draft = result["draft"]
-        st.subheader("Draft")
-        if draft["summary"]:
-            st.write(draft["summary"])
-        for section in draft["sections"]:
-            st.markdown(f"**{section['heading']}**")
-            for bullet in section["bullets"]:
-                st.markdown(f"- {bullet}")
-
-        if result["hallucinations"]:
-            st.subheader("⚠️ Unsupported claims (flagged by the Trust Harness)")
-            for claim in result["hallucinations"]:
-                st.markdown(f"- *{claim['category']}*: {claim['text']}")
-
-        if result["missing_keywords"]:
-            st.subheader("Missing ATS keywords")
-            st.write(", ".join(result["missing_keywords"]))
+        _render_generation_result(result)
 
 
 def _render_search_tab(client: TrustResumeClient) -> None:
@@ -162,6 +175,125 @@ def _render_search_tab(client: TrustResumeClient) -> None:
                 st.write(chunk["text"])
 
 
+def _render_jobs_tab(client: TrustResumeClient) -> None:
+    st.subheader("Create a job")
+    st.caption(
+        "Persisted, unlike the one-off Generate tab: get an id you can upload "
+        "job-scoped documents against, generate against repeatedly, and browse "
+        "past resumes for."
+    )
+    with st.form("create_job_form", clear_on_submit=True):
+        job_posting = st.text_area("Job posting", height=150, placeholder="Paste the job posting…")
+        create_submitted = st.form_submit_button("Create job")
+
+    if create_submitted:
+        if not job_posting.strip():
+            st.warning("Paste a job posting first.")
+        else:
+            try:
+                client.create_job(job_posting=job_posting)
+            except requests.HTTPError as exc:
+                st.error(f"Could not create job: {_error_detail(exc)}")
+            except requests.RequestException as exc:
+                st.error(f"Could not reach the backend: {exc}")
+            else:
+                st.rerun()
+
+    st.divider()
+
+    try:
+        jobs = client.list_jobs()
+    except requests.RequestException as exc:
+        st.error(f"Could not reach the backend: {exc}")
+        return
+    if not jobs:
+        st.info("No jobs created yet.")
+        return
+
+    labels = {j["id"]: (j["summary"] or j["id"]) for j in jobs}
+    job_id = st.selectbox("Job", options=list(labels), format_func=lambda jid: labels[jid])
+    if job_id is None:
+        return
+
+    st.subheader("Job-scoped documents")
+    st.caption(
+        "Uploaded here, these are used for this job in addition to your generic "
+        "(unlinked) document pool — see the Documents tab for that pool."
+    )
+    with st.form(f"job_upload_form_{job_id}", clear_on_submit=True):
+        upload = st.file_uploader("File (.txt, .md, .docx)", type=["txt", "md", "docx"])
+        document_type = st.selectbox(
+            "Document type",
+            [t.value for t in DocumentType],
+            index=len(DocumentType) - 1,
+            key=f"job_doc_type_{job_id}",
+        )
+        upload_submitted = st.form_submit_button("Upload")
+
+    if upload_submitted:
+        if upload is None:
+            st.warning("Choose a file first.")
+        else:
+            try:
+                client.upload_document_for_job(
+                    job_id=job_id,
+                    filename=upload.name,
+                    data=upload.getvalue(),
+                    document_type=document_type,
+                )
+            except requests.HTTPError as exc:
+                st.error(f"Upload failed: {_error_detail(exc)}")
+            else:
+                st.success(f"Linked {upload.name} to this job.")
+
+    st.divider()
+
+    if st.button("Generate for this job", type="primary"):
+        with st.spinner("Running the pipeline — job analysis, retrieval, writing, verification…"):
+            try:
+                result = client.generate_for_job(job_id=job_id)
+            except requests.HTTPError as exc:
+                st.error(f"Generation failed: {_error_detail(exc)}")
+                return
+            except requests.RequestException as exc:
+                st.error(f"Could not reach the backend: {exc}")
+                return
+        _render_generation_result(result)
+
+    st.divider()
+    st.subheader("Past resumes for this job")
+    try:
+        resumes = client.list_resumes_for_job(job_id=job_id)
+    except requests.RequestException as exc:
+        st.error(f"Could not reach the backend: {exc}")
+        return
+    if not resumes:
+        st.info("No resumes generated for this job yet.")
+        return
+    for resume in resumes:
+        with st.container(border=True):
+            st.write(
+                f"Trust {resume['trust_score']:.0f} · ATS {resume['ats_score']:.0f} · "
+                f"iteration {resume['iteration']} · "
+                f"{'passed' if resume['passed'] else 'did not pass'} · {resume['created_at']}"
+            )
+            col_pdf, col_md = st.columns(2)
+            col_pdf.download_button(
+                "Download PDF",
+                data=client.download_resume_pdf(resume_id=resume["id"]),
+                file_name=f"resume-{resume['id']}.pdf",
+                mime="application/pdf",
+                key=f"pdf-{resume['id']}",
+            )
+            col_md.download_button(
+                "Download Markdown",
+                data=client.download_resume_markdown(resume_id=resume["id"]),
+                file_name=f"resume-{resume['id']}.md",
+                mime="text/markdown",
+                key=f"md-{resume['id']}",
+            )
+
+
 def main() -> None:
     st.set_page_config(page_title="TrustResume", page_icon="📄", layout="centered")
     st.title("TrustResume")
@@ -177,11 +309,15 @@ def main() -> None:
     else:
         st.sidebar.success("Backend connected")
 
-    tab_documents, tab_generate, tab_search = st.tabs(["📁 Documents", "✨ Generate", "🔍 Search"])
+    tab_documents, tab_generate, tab_jobs, tab_search = st.tabs(
+        ["📁 Documents", "✨ Generate", "💼 Jobs", "🔍 Search"]
+    )
     with tab_documents:
         _render_documents_tab(client)
     with tab_generate:
         _render_generate_tab(client)
+    with tab_jobs:
+        _render_jobs_tab(client)
     with tab_search:
         _render_search_tab(client)
 

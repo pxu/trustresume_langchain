@@ -44,23 +44,40 @@ def _ok_response(json_body: object) -> MagicMock:
 
 @pytest.fixture
 def mock_session() -> MagicMock:
-    """A ``requests.Session`` double wired for the app's ``health``/`list_documents`
-    startup calls; each test layers its own ``session.post`` return value on top.
+    """A ``requests.Session`` double wired for the app's startup GETs
+    (``health``, the Documents tab's ``list_documents``, the Jobs tab's
+    ``list_jobs``); each test layers its own ``session.post``/other
+    ``session.get`` return values on top. Dispatches by URL substring since
+    the app now issues more than one kind of listing GET.
     """
     with patch("trustresume.ui.api_client.requests.Session") as session_cls:
         session = session_cls.return_value
         health_resp = _ok_response({"status": "ok"})
         docs_resp = _ok_response([])
-        session.get.side_effect = lambda url, **kw: health_resp if "health" in url else docs_resp
+        jobs_resp = _ok_response([])
+
+        def _get(url: str, **kw: object) -> MagicMock:
+            if "health" in url:
+                return health_resp
+            if "/api/jobs" in url:
+                return jobs_resp
+            return docs_resp
+
+        session.get.side_effect = _get
         yield session
 
 
-def test_app_rendersThreeTabsWithoutError(mock_session: MagicMock) -> None:
+def test_app_rendersFourTabsWithoutError(mock_session: MagicMock) -> None:
     at = AppTest.from_file(APP_PATH)
     at.run()
 
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["📁 Documents", "✨ Generate", "🔍 Search"]
+    assert [t.label for t in at.tabs] == [
+        "📁 Documents",
+        "✨ Generate",
+        "💼 Jobs",
+        "🔍 Search",
+    ]
     assert at.sidebar.success[0].value == "Backend connected"
 
 
@@ -75,14 +92,16 @@ def test_app_backendUnreachable_showsSidebarError() -> None:
 
 
 def test_documentsTab_listsUploadedDocuments(mock_session: MagicMock) -> None:
+    docs_resp = _ok_response([{"id": "d1", "filename": "resume.txt", "document_type": "RESUME"}])
+    health_resp = _ok_response({"status": "ok"})
+    jobs_resp = _ok_response([])
     mock_session.get.side_effect = lambda url, **kw: (
-        _ok_response({"status": "ok"})
-        if "health" in url
-        else _ok_response([{"id": "d1", "filename": "resume.txt", "document_type": "RESUME"}])
+        health_resp if "health" in url else jobs_resp if "/api/jobs" in url else docs_resp
     )
     at = AppTest.from_file(APP_PATH)
     at.run()
 
+    assert not at.exception
     docs_tab = at.tabs[0]
     assert any("resume.txt" in w.value and "RESUME" in w.value for w in docs_tab.markdown)
     assert any(b.label == "Delete" for b in docs_tab.button)
@@ -94,9 +113,13 @@ def test_documentsTab_deleteButton_removesDocumentAndReruns(mock_session: MagicM
     # way a real backend would; a plain fixed return value can't distinguish
     # "before" from "after" across the delete-triggered rerun.
     docs = [{"id": "d1", "filename": "resume.txt", "document_type": "RESUME"}]
+    health_resp = _ok_response({"status": "ok"})
+    jobs_resp = _ok_response([])
     mock_session.get.side_effect = lambda url, **kw: (
-        _ok_response({"status": "ok"})
+        health_resp
         if "health" in url
+        else jobs_resp
+        if "/api/jobs" in url
         else _ok_response([] if mock_session.delete.called else docs)
     )
     mock_session.delete.return_value = _ok_response(None)
@@ -116,8 +139,11 @@ def test_documentsTab_deleteButton_removesDocumentAndReruns(mock_session: MagicM
 
 def test_documentsTab_deleteButton_httpError_showsErrorMessage(mock_session: MagicMock) -> None:
     docs = [{"id": "d1", "filename": "resume.txt", "document_type": "RESUME"}]
+    docs_resp = _ok_response(docs)
+    health_resp = _ok_response({"status": "ok"})
+    jobs_resp = _ok_response([])
     mock_session.get.side_effect = lambda url, **kw: (
-        _ok_response({"status": "ok"}) if "health" in url else _ok_response(docs)
+        health_resp if "health" in url else jobs_resp if "/api/jobs" in url else docs_resp
     )
     error_resp = MagicMock()
     error_resp.text = "cannot delete"
@@ -289,14 +315,14 @@ def test_searchTab_returnsRankedChunks(mock_session: MagicMock) -> None:
 
     at = AppTest.from_file(APP_PATH)
     at.run()
-    search_tab = at.tabs[2]
+    search_tab = at.tabs[3]
     search_tab.text_input[0].set_value("python aws").run()
     search_tab.button[0].click().run()
 
     assert not at.exception
-    captions = [c.value for c in at.tabs[2].caption]
+    captions = [c.value for c in at.tabs[3].caption]
     assert any("RESUME" in c and "resume.txt" in c for c in captions)
-    assert "Built Python services on AWS." in at.tabs[2].markdown[-1].value
+    assert "Built Python services on AWS." in at.tabs[3].markdown[-1].value
 
 
 def test_searchTab_noResults_showsInfo(mock_session: MagicMock) -> None:
@@ -304,12 +330,12 @@ def test_searchTab_noResults_showsInfo(mock_session: MagicMock) -> None:
 
     at = AppTest.from_file(APP_PATH)
     at.run()
-    search_tab = at.tabs[2]
+    search_tab = at.tabs[3]
     search_tab.text_input[0].set_value("nothing matches").run()
     search_tab.button[0].click().run()
 
     assert not at.exception
-    assert at.tabs[2].info[0].value == "No matching evidence found."
+    assert at.tabs[3].info[0].value == "No matching evidence found."
 
 
 def test_searchTab_connectionError_showsBackendUnreachable(mock_session: MagicMock) -> None:
@@ -317,12 +343,12 @@ def test_searchTab_connectionError_showsBackendUnreachable(mock_session: MagicMo
 
     at = AppTest.from_file(APP_PATH)
     at.run()
-    search_tab = at.tabs[2]
+    search_tab = at.tabs[3]
     search_tab.text_input[0].set_value("python").run()
     search_tab.button[0].click().run()
 
     assert not at.exception
-    assert "Could not reach the backend" in at.tabs[2].error[0].value
+    assert "Could not reach the backend" in at.tabs[3].error[0].value
 
 
 def test_searchTab_backendError_showsErrorMessage(mock_session: MagicMock) -> None:
@@ -334,9 +360,343 @@ def test_searchTab_backendError_showsErrorMessage(mock_session: MagicMock) -> No
 
     at = AppTest.from_file(APP_PATH)
     at.run()
-    search_tab = at.tabs[2]
+    search_tab = at.tabs[3]
     search_tab.text_input[0].set_value("python").run()
     search_tab.button[0].click().run()
 
     assert not at.exception
-    assert "Search failed" in at.tabs[2].error[0].value
+    assert "Search failed" in at.tabs[3].error[0].value
+
+
+# --- Jobs tab ----------------------------------------------------------------
+
+
+def test_jobsTab_noJobsYet_showsInfo(mock_session: MagicMock) -> None:
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    jobs_tab = at.tabs[2]
+    assert any(i.value == "No jobs created yet." for i in jobs_tab.info)
+
+
+def test_jobsTab_createJob_success_reruns(mock_session: MagicMock) -> None:
+    mock_session.post.return_value = _ok_response({"id": "j1", "title": "Engineer"})
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    jobs_tab.text_area[0].set_value("Senior Python Engineer role").run()
+    jobs_tab.button[0].click().run()
+
+    assert not at.exception
+    _, kwargs = mock_session.post.call_args
+    assert kwargs["json"] == {"job_posting": "Senior Python Engineer role"}
+
+
+def test_jobsTab_createJob_noPostingChosen_warns(mock_session: MagicMock) -> None:
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    jobs_tab.button[0].click().run()
+
+    assert not at.exception
+    assert at.tabs[2].warning[0].value == "Paste a job posting first."
+
+
+def test_jobsTab_createJob_httpError_showsErrorMessage(mock_session: MagicMock) -> None:
+    error_resp = MagicMock()
+    error_resp.text = "cannot create"
+    http_error = requests.HTTPError("500 error")
+    http_error.response = error_resp
+    mock_session.post.side_effect = http_error
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    jobs_tab.text_area[0].set_value("Senior Python Engineer role").run()
+    jobs_tab.button[0].click().run()
+
+    assert not at.exception
+    assert "Could not create job" in at.tabs[2].error[0].value
+
+
+def test_jobsTab_createJob_connectionError_showsBackendUnreachable(
+    mock_session: MagicMock,
+) -> None:
+    mock_session.post.side_effect = requests.ConnectionError("down")
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    jobs_tab.text_area[0].set_value("Senior Python Engineer role").run()
+    jobs_tab.button[0].click().run()
+
+    assert not at.exception
+    assert "Could not reach the backend" in at.tabs[2].error[0].value
+
+
+def test_jobsTab_withExistingJob_rendersUploadGenerateAndPastResumes(
+    mock_session: MagicMock,
+) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    resumes_resp = _ok_response(
+        [
+            {
+                "id": "r1",
+                "trust_score": 95.0,
+                "ats_score": 90.0,
+                "iteration": 0,
+                "passed": True,
+                "created_at": "2026-01-01T00:00:00",
+            }
+        ]
+    )
+    health_resp = _ok_response({"status": "ok"})
+    docs_resp = _ok_response([])
+    pdf_resp = MagicMock()
+    pdf_resp.raise_for_status.return_value = None
+    pdf_resp.content = b"%PDF-1.4 fake"
+    md_resp = MagicMock()
+    md_resp.raise_for_status.return_value = None
+    md_resp.text = "# Summary"
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/resumes"):
+            return resumes_resp
+        if url.endswith("/pdf"):
+            return pdf_resp
+        if url.endswith("/markdown"):
+            return md_resp
+        if "/api/jobs" in url:
+            return jobs_resp
+        return docs_resp
+
+    mock_session.get.side_effect = _get
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+
+    assert not at.exception
+    # AppTest reports the selectbox's options already run through
+    # format_func — verified empirically — so this checks the displayed
+    # label (the job's summary), not the raw job id.
+    assert jobs_tab.selectbox[0].options == ["Senior Python Engineer at Acme"]
+    # Past resume is rendered (st.write -> markdown element) with its scores,
+    # plus both download buttons (a distinct AppTest element category from
+    # plain st.button — verified empirically).
+    assert any("Trust 95" in w.value for w in jobs_tab.markdown)
+    download_labels = {b.label for b in jobs_tab.download_button}
+    assert "Download PDF" in download_labels
+    assert "Download Markdown" in download_labels
+
+
+def test_jobsTab_uploadDocumentForJob_success_showsSuccessMessage(
+    mock_session: MagicMock,
+) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    docs_resp = _ok_response([])
+    empty_resumes_resp = _ok_response([])
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/resumes"):
+            return empty_resumes_resp
+        if "/api/jobs" in url:
+            return jobs_resp
+        return docs_resp
+
+    mock_session.get.side_effect = _get
+    mock_session.post.return_value = _ok_response(
+        {"id": "d1", "filename": "resume.txt", "document_type": "RESUME"}
+    )
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    jobs_tab.file_uploader[0].upload("resume.txt", b"Built Python services.").run()
+    # First form's submit is "Create job"; the upload form's submit follows it.
+    upload_button = next(b for b in jobs_tab.button if b.label == "Upload")
+    upload_button.click().run()
+
+    assert not at.exception
+    assert any("Linked resume.txt to this job" in s.value for s in at.tabs[2].success)
+
+
+def test_jobsTab_uploadDocumentForJob_noFileChosen_warns(mock_session: MagicMock) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    docs_resp = _ok_response([])
+    empty_resumes_resp = _ok_response([])
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/resumes"):
+            return empty_resumes_resp
+        if "/api/jobs" in url:
+            return jobs_resp
+        return docs_resp
+
+    mock_session.get.side_effect = _get
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    upload_button = next(b for b in jobs_tab.button if b.label == "Upload")
+    upload_button.click().run()
+
+    assert not at.exception
+    assert at.tabs[2].warning[0].value == "Choose a file first."
+
+
+def test_jobsTab_generateForJob_success_rendersResult(mock_session: MagicMock) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    docs_resp = _ok_response([])
+    empty_resumes_resp = _ok_response([])
+    generate_resp = _ok_response(
+        {
+            "draft": {"summary": "Backend engineer.", "sections": [], "iteration": 0},
+            "trust_score": 95.0,
+            "ats_score": 90.0,
+            "passed": True,
+            "exhausted": False,
+            "iterations": 0,
+            "hallucinations": [],
+            "missing_keywords": [],
+            "resume_id": "r1",
+        }
+    )
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/resumes"):
+            return empty_resumes_resp
+        if "/api/jobs" in url:
+            return jobs_resp
+        return docs_resp
+
+    mock_session.get.side_effect = _get
+    mock_session.post.return_value = generate_resp
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    generate_button = next(b for b in jobs_tab.button if b.label == "Generate for this job")
+    generate_button.click().run()
+
+    assert not at.exception
+    assert any("Passed the quality gate." in s.value for s in at.tabs[2].success)
+
+
+def test_jobsTab_generateForJob_httpError_showsErrorMessage(mock_session: MagicMock) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    docs_resp = _ok_response([])
+    empty_resumes_resp = _ok_response([])
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/resumes"):
+            return empty_resumes_resp
+        if "/api/jobs" in url:
+            return jobs_resp
+        return docs_resp
+
+    mock_session.get.side_effect = _get
+    error_resp = MagicMock()
+    error_resp.text = "cannot generate"
+    http_error = requests.HTTPError("500 error")
+    http_error.response = error_resp
+    mock_session.post.side_effect = http_error
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    generate_button = next(b for b in jobs_tab.button if b.label == "Generate for this job")
+    generate_button.click().run()
+
+    assert not at.exception
+    assert "Generation failed" in at.tabs[2].error[0].value
+
+
+def test_jobsTab_generateForJob_connectionError_showsBackendUnreachable(
+    mock_session: MagicMock,
+) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    docs_resp = _ok_response([])
+    empty_resumes_resp = _ok_response([])
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/resumes"):
+            return empty_resumes_resp
+        if "/api/jobs" in url:
+            return jobs_resp
+        return docs_resp
+
+    mock_session.get.side_effect = _get
+    mock_session.post.side_effect = requests.ConnectionError("down")
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    jobs_tab = at.tabs[2]
+    generate_button = next(b for b in jobs_tab.button if b.label == "Generate for this job")
+    generate_button.click().run()
+
+    assert not at.exception
+    assert "Could not reach the backend" in at.tabs[2].error[0].value
+
+
+def test_jobsTab_listResumesForJob_connectionError_showsBackendUnreachable(
+    mock_session: MagicMock,
+) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    docs_resp = _ok_response([])
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/resumes"):
+            raise requests.ConnectionError("down")
+        if "/api/jobs" in url:
+            return jobs_resp
+        return docs_resp
+
+    mock_session.get.side_effect = _get
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    assert not at.exception
+    assert any("Could not reach the backend" in e.value for e in at.tabs[2].error)
+
+
+def test_jobsTab_backendUnreachableListingJobs_showsError(mock_session: MagicMock) -> None:
+    # Health succeeds (so the sidebar/other tabs render normally) but the
+    # Jobs tab's own list_jobs() call fails — isolates that tab's specific
+    # try/except from the app-wide health-check one in main().
+    health_resp = _ok_response({"status": "ok"})
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        raise requests.ConnectionError("down")
+
+    mock_session.get.side_effect = _get
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    assert not at.exception
+    assert any("Could not reach the backend" in e.value for e in at.tabs[2].error)

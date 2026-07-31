@@ -15,6 +15,8 @@ from .repositories import (
     ChunkRepository,
     DocumentRepository,
     EvaluationRepository,
+    JobDocumentRepository,
+    JobRepository,
     ResumeRepository,
     UserRepository,
 )
@@ -30,4 +32,6 @@ __all__ = [
     "CandidateProfileCacheEntry",
     "ResumeRepository",
     "EvaluationRepository",
+    "JobRepository",
+    "JobDocumentRepository",
 ]

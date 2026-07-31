@@ -31,6 +31,8 @@ from trustresume.storage import (
     CandidateProfileRepository,
     ChunkRepository,
     DocumentRepository,
+    JobDocumentRepository,
+    JobRepository,
     UserRepository,
 )
 
@@ -602,3 +604,220 @@ def test_ingestText_noCandidateProfileYet_doesNotError(
     """mark_stale is a no-op when there's no cache row yet — nothing to flag."""
     svc, _vectors, _chunks = service
     svc.ingest_text(user_id="u1", filename="r.txt", text="Some content.")  # must not raise
+
+
+# --- filename-first identity, in-place re-indexing, job linking ------------
+
+
+@pytest.fixture
+def service_with_jobs(
+    db: sqlite3.Connection, fake_embedder: FakeEmbeddings
+) -> tuple[
+    IngestionService,
+    ChromaVectorStore,
+    ChunkRepository,
+    JobRepository,
+    JobDocumentRepository,
+]:
+    """Like ``service``, but with a JobDocumentRepository collaborator wired
+    in, plus direct access to JobRepository/JobDocumentRepository for
+    assertions (the same repository instances IngestionService itself uses,
+    since they all share the one ``db`` connection).
+    """
+    UserRepository(db).create("A", user_id="u1")
+    chunks = ChunkRepository(db)
+    jobs = JobRepository(db)
+    job_documents = JobDocumentRepository(db)
+    vectors = _fresh_chroma_store(fake_embedder)
+    svc = IngestionService(
+        documents=DocumentRepository(db),
+        chunks=chunks,
+        vector_store=vectors,
+        candidate_profiles=CandidateProfileRepository(db),
+        job_documents=job_documents,
+    )
+    return svc, vectors, chunks, jobs, job_documents
+
+
+def test_ingestText_sameFilenameSameContent_isNoOp(
+    service: tuple[IngestionService, ChromaVectorStore, ChunkRepository],
+) -> None:
+    """Filename-first identity: a same-named re-upload with unchanged content
+    is a no-op, same document id, same chunk count — the primary dedup path
+    (distinct from the content-hash fallback exercised elsewhere).
+    """
+    svc, _vectors, chunks = service
+    text = "Built Python services on AWS."
+
+    first_id = svc.ingest_text(user_id="u1", filename="resume.txt", text=text)
+    first_count = len(chunks.list_for_user("u1"))
+    second_id = svc.ingest_text(user_id="u1", filename="resume.txt", text=text)
+
+    assert first_id == second_id
+    assert len(chunks.list_for_user("u1")) == first_count
+
+
+def test_ingestText_sameFilenameDifferentContent_reindexesInPlaceSameDocumentId(
+    service: tuple[IngestionService, ChromaVectorStore, ChunkRepository],
+) -> None:
+    """A same-named re-upload with *changed* content is re-chunked/re-embedded
+    in place, under the same document_id — not treated as a new document.
+    """
+    svc, vectors, chunks = service
+    first_id = svc.ingest_text(
+        user_id="u1", filename="resume.txt", text="Python developer with AWS experience."
+    )
+    old_chunk_ids = {row["chunk_id"] for row in chunks.list_for_user("u1")}
+
+    second_id = svc.ingest_text(
+        user_id="u1", filename="resume.txt", text="Java developer with GCP experience now."
+    )
+
+    assert second_id == first_id
+    new_rows = chunks.list_for_user("u1")
+    new_chunk_ids = {row["chunk_id"] for row in new_rows}
+    # Old chunk rows are gone (fresh ids assigned on re-index, not reused)...
+    assert old_chunk_ids.isdisjoint(new_chunk_ids)
+    old_texts = {row["text"] for row in new_rows}
+    assert "Python developer with AWS experience." not in old_texts
+    assert any("Java developer with GCP experience now." in t for t in old_texts)
+    # ...still under the same document_id, and Chroma no longer serves the
+    # old chunk ids (deleted) but does serve the new ones (upserted).
+    assert all(row["document_id"] == first_id for row in new_rows)
+    all_hits = {c.chunk_id for c in vectors.search(user_id="u1", query="anything", limit=50).chunks}
+    assert all_hits.isdisjoint(old_chunk_ids)
+    assert new_chunk_ids <= all_hits
+
+
+def test_ingestText_neverSeenFilename_fallsBackToContentHashDedup(
+    service: tuple[IngestionService, ChromaVectorStore, ChunkRepository],
+) -> None:
+    """The three-way case: content matches an existing document (linked
+    under a different filename), and the new filename has never been seen.
+    Filename-match takes precedence when it exists, but with no filename
+    match at all, the pre-existing content-hash fallback dedup still applies.
+    """
+    svc, _vectors, chunks = service
+    text = "Built Python services on AWS."
+    first_id = svc.ingest_text(user_id="u1", filename="resume-v1.txt", text=text)
+
+    second_id = svc.ingest_text(user_id="u1", filename="never-seen-name.txt", text=text)
+
+    assert second_id == first_id
+    assert len(chunks.list_for_user("u1")) == len(chunks.list_for_user("u1"))  # unchanged, no dup
+
+
+def test_ingestText_reindexInPlace_embeddingFailure_raisesAndLogsOldChunksAlreadyGone(
+    db: sqlite3.Connection, fake_embedder: FakeEmbeddings
+) -> None:
+    """A Chroma failure mid-reindex is a known, accepted gap (no cross-store
+    transaction exists anywhere in this codebase) — it must still raise
+    rather than silently succeed, which is the one behavior this test locks in.
+    """
+    UserRepository(db).create("A", user_id="u1")
+    chunks = ChunkRepository(db)
+    documents = DocumentRepository(db)
+
+    class BoomOnSecondUpsert(ChromaVectorStore):
+        _calls = 0
+
+        def upsert_chunks(self, chunks_arg):  # type: ignore[no-untyped-def]
+            type(self)._calls += 1
+            if type(self)._calls > 1:
+                raise RuntimeError("chroma down")
+            super().upsert_chunks(chunks_arg)
+
+    vectors = BoomOnSecondUpsert(
+        chromadb.EphemeralClient(), fake_embedder, collection_name=f"test-{uuid.uuid4().hex}"
+    )
+    svc = IngestionService(
+        documents=documents,
+        chunks=chunks,
+        vector_store=vectors,
+        candidate_profiles=CandidateProfileRepository(db),
+    )
+    doc_id = svc.ingest_text(user_id="u1", filename="resume.txt", text="Original content here.")
+
+    with pytest.raises(RuntimeError, match="chroma down"):
+        svc.ingest_text(user_id="u1", filename="resume.txt", text="Updated content now.")
+
+    # The accepted gap: the OLD chunks were already deleted (from both
+    # stores) before the new SQLite chunk rows were written, and the
+    # failing Chroma upsert means those new rows have no matching vectors —
+    # SQLite ends up with chunks whose text is the new content but that
+    # aren't retrievable via Chroma. Not a hidden success, and not silently
+    # back to the pre-update state either.
+    remaining = chunks.list_for_user("u1")
+    assert remaining and all(row["document_id"] == doc_id for row in remaining)
+    assert all("Updated content now." in row["text"] for row in remaining)
+    # The document row itself is untouched (still points at the OLD hash,
+    # since update_content_hash is only reached after a successful upsert);
+    # unlike the create path, no rollback of the row happens here.
+    row = documents.find_by_filename(user_id="u1", filename="resume.txt")
+    assert row is not None
+    assert row["id"] == doc_id
+
+
+def test_ingestText_jobId_linksDocumentToJob(
+    service_with_jobs: tuple[
+        IngestionService,
+        ChromaVectorStore,
+        ChunkRepository,
+        JobRepository,
+        JobDocumentRepository,
+    ],
+) -> None:
+    from trustresume.models import JobDescription
+
+    svc, _vectors, _chunks, jobs, job_documents = service_with_jobs
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+
+    doc_id = svc.ingest_text(
+        user_id="u1", filename="resume.txt", text="Some content.", job_id=job_id
+    )
+
+    assert job_documents.list_document_ids_for_job(job_id) == [doc_id]
+
+
+def test_ingestText_jobId_reuploadSameJob_linkStaysIdempotent(
+    service_with_jobs: tuple[
+        IngestionService,
+        ChromaVectorStore,
+        ChunkRepository,
+        JobRepository,
+        JobDocumentRepository,
+    ],
+) -> None:
+    from trustresume.models import JobDescription
+
+    svc, _vectors, _chunks, jobs, job_documents = service_with_jobs
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+
+    doc_id = svc.ingest_text(
+        user_id="u1", filename="resume.txt", text="Some content.", job_id=job_id
+    )
+    # Re-upload the same (unchanged) content under the same job — a no-op
+    # ingest, but the link must remain (not duplicate, not disappear).
+    doc_id_2 = svc.ingest_text(
+        user_id="u1", filename="resume.txt", text="Some content.", job_id=job_id
+    )
+
+    assert doc_id_2 == doc_id
+    assert job_documents.list_document_ids_for_job(job_id) == [doc_id]
+
+
+def test_ingestText_jobIdWithoutJobDocumentsCollaborator_raisesValueError(
+    service: tuple[IngestionService, ChromaVectorStore, ChunkRepository],
+) -> None:
+    """The plain ``service`` fixture builds an ``IngestionService`` with no
+    ``job_documents`` collaborator (matching every pre-existing test/call
+    site) — passing ``job_id`` there must raise loudly, not silently drop
+    the link a caller explicitly asked for.
+    """
+    svc, _vectors, _chunks = service
+    with pytest.raises(ValueError, match="job_documents"):
+        svc.ingest_text(user_id="u1", filename="r.txt", text="content", job_id="some-job-id")

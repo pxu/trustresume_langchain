@@ -13,6 +13,7 @@ from trustresume.models import (
     ClaimStatus,
     DocumentType,
     EvidenceChunk,
+    JobDescription,
     ResumeDraft,
     ResumeSection,
     TrustReport,
@@ -22,6 +23,8 @@ from trustresume.storage import (
     ChunkRepository,
     DocumentRepository,
     EvaluationRepository,
+    JobDocumentRepository,
+    JobRepository,
     ResumeRepository,
     UserRepository,
 )
@@ -313,3 +316,338 @@ def test_foreignKey_cascadeDeletesChunks(db: sqlite3.Connection) -> None:
     db.execute("DELETE FROM users WHERE id = ?", ("u1",))
     db.commit()
     assert chunks.list_for_user("u1") == []
+
+
+# --- DocumentRepository: filename identity + job-scoped eligibility --------
+
+
+def test_documentRepository_findByFilename_scopedByUser(db: sqlite3.Connection) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    users.create("B", user_id="u2")
+    docs = DocumentRepository(db)
+    doc_id = docs.create(
+        user_id="u1", filename="r.txt", document_type=DocumentType.RESUME, content_hash="h1"
+    )
+
+    found = docs.find_by_filename(user_id="u1", filename="r.txt")
+    assert found is not None and found["id"] == doc_id
+    assert docs.find_by_filename(user_id="u1", filename="missing.txt") is None
+    # Same filename, different (or no) document for another user.
+    assert docs.find_by_filename(user_id="u2", filename="r.txt") is None
+
+
+def test_documentRepository_updateContentHash_preservesIdChangesHashAndFilename(
+    db: sqlite3.Connection,
+) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    docs = DocumentRepository(db)
+    doc_id = docs.create(
+        user_id="u1", filename="r.txt", document_type=DocumentType.RESUME, content_hash="h1"
+    )
+
+    docs.update_content_hash(user_id="u1", document_id=doc_id, content_hash="h2", filename="r.txt")
+
+    row = docs.find_by_filename(user_id="u1", filename="r.txt")
+    assert row is not None
+    assert row["id"] == doc_id  # same logical document, not a new row
+    assert row["content_hash"] == "h2"
+
+
+def test_documentRepository_listEligibleDocumentIds_genericPoolUnionedWithJobLinked(
+    db: sqlite3.Connection,
+) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    docs = DocumentRepository(db)
+    generic_id = docs.create(
+        user_id="u1", filename="generic.txt", document_type=DocumentType.RESUME, content_hash="h1"
+    )
+    linked_id = docs.create(
+        user_id="u1", filename="linked.txt", document_type=DocumentType.RESUME, content_hash="h2"
+    )
+    other_job_only_id = docs.create(
+        user_id="u1", filename="other.txt", document_type=DocumentType.RESUME, content_hash="h3"
+    )
+    jobs = JobRepository(db)
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+    other_job_id = jobs.create(
+        user_id="u1", raw_posting="y", job=JobDescription(raw_text="y"), summary=None
+    )
+    job_documents = JobDocumentRepository(db)
+    job_documents.link(job_id=job_id, document_id=linked_id)
+    job_documents.link(job_id=other_job_id, document_id=other_job_only_id)
+
+    eligible_for_job = set(docs.list_eligible_document_ids(user_id="u1", job_id=job_id))
+    eligible_generic_only = set(docs.list_eligible_document_ids(user_id="u1", job_id=None))
+
+    # Generic pool (unlinked to ANY job) + this job's own link — not the
+    # other job's link, since "generic" means unlinked to any job, not just
+    # unlinked to this one.
+    assert eligible_for_job == {generic_id, linked_id}
+    assert eligible_generic_only == {generic_id}
+
+
+# --- JobRepository -----------------------------------------------------------
+
+
+def test_jobRepository_createGetUpdateDelete(db: sqlite3.Connection) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    jobs = JobRepository(db)
+    job = JobDescription(raw_text="Need a Python engineer", title="Engineer", company="Acme")
+    job_id = jobs.create(
+        user_id="u1", raw_posting=job.raw_text, job=job, summary="Engineer at Acme"
+    )
+
+    row = jobs.get(user_id="u1", job_id=job_id)
+    assert row is not None
+    assert row["title"] == "Engineer"
+    assert row["company"] == "Acme"
+    assert row["summary"] == "Engineer at Acme"
+    assert JobDescription.model_validate_json(row["job_description_json"]) == job
+
+    assert len(jobs.list_for_user("u1")) == 1
+    assert jobs.exists(user_id="u1", job_id=job_id) is True
+    assert jobs.exists(user_id="u1", job_id="missing") is False
+
+    updated_job = JobDescription(raw_text="Need a Staff engineer", title="Staff Engineer")
+    assert (
+        jobs.update(
+            user_id="u1",
+            job_id=job_id,
+            raw_posting=updated_job.raw_text,
+            job=updated_job,
+            summary="Staff Engineer",
+        )
+        is True
+    )
+    updated_row = jobs.get(user_id="u1", job_id=job_id)
+    assert updated_row is not None
+    assert updated_row["title"] == "Staff Engineer"
+    assert (
+        jobs.update(
+            user_id="u1",
+            job_id="missing",
+            raw_posting="x",
+            job=JobDescription(raw_text="x"),
+            summary=None,
+        )
+        is False
+    )
+
+    jobs.delete(user_id="u1", job_id=job_id)
+    assert jobs.get(user_id="u1", job_id=job_id) is None
+
+
+def test_jobRepository_isolatedByUser(db: sqlite3.Connection) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    users.create("B", user_id="u2")
+    jobs = JobRepository(db)
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+
+    assert jobs.get(user_id="u2", job_id=job_id) is None
+    assert jobs.list_for_user("u2") == []
+    assert jobs.exists(user_id="u2", job_id=job_id) is False
+
+
+# --- JobDocumentRepository ---------------------------------------------------
+
+
+def test_jobDocumentRepository_linkIsIdempotentAndUnlinkRemovesOnlyTheLink(
+    db: sqlite3.Connection,
+) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    docs = DocumentRepository(db)
+    doc_id = docs.create(
+        user_id="u1", filename="r.txt", document_type=DocumentType.RESUME, content_hash="h1"
+    )
+    jobs = JobRepository(db)
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+    job_documents = JobDocumentRepository(db)
+
+    job_documents.link(job_id=job_id, document_id=doc_id)
+    job_documents.link(job_id=job_id, document_id=doc_id)  # idempotent, no error
+
+    assert job_documents.list_document_ids_for_job(job_id) == [doc_id]
+    assert job_documents.list_job_ids_for_document(doc_id) == [job_id]
+
+    job_documents.unlink(job_id=job_id, document_id=doc_id)
+
+    assert job_documents.list_document_ids_for_job(job_id) == []
+    # The document itself is untouched by unlinking.
+    assert docs.find_by_filename(user_id="u1", filename="r.txt") is not None
+
+
+def test_jobDocumentRepository_cascadesOnJobDeleteAndOnDocumentDelete(
+    db: sqlite3.Connection,
+) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    docs = DocumentRepository(db)
+    doc_id = docs.create(
+        user_id="u1", filename="r.txt", document_type=DocumentType.RESUME, content_hash="h1"
+    )
+    jobs = JobRepository(db)
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+    job_documents = JobDocumentRepository(db)
+    job_documents.link(job_id=job_id, document_id=doc_id)
+
+    jobs.delete(user_id="u1", job_id=job_id)
+    assert job_documents.list_document_ids_for_job(job_id) == []
+
+    # Re-link a fresh job, then delete the document instead.
+    job_id_2 = jobs.create(
+        user_id="u1", raw_posting="y", job=JobDescription(raw_text="y"), summary=None
+    )
+    job_documents.link(job_id=job_id_2, document_id=doc_id)
+    docs.delete(user_id="u1", document_id=doc_id)
+    assert job_documents.list_job_ids_for_document(doc_id) == []
+
+
+# --- ChunkRepository.search_keywords: document_ids filter -------------------
+
+
+def test_chunkRepository_searchKeywords_documentIdsFilter(db: sqlite3.Connection) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    docs = DocumentRepository(db)
+    doc1 = docs.create(
+        user_id="u1", filename="a.txt", document_type=DocumentType.RESUME, content_hash="h1"
+    )
+    doc2 = docs.create(
+        user_id="u1", filename="b.txt", document_type=DocumentType.RESUME, content_hash="h2"
+    )
+    chunks = ChunkRepository(db)
+    chunks.add(
+        EvidenceChunk(chunk_id="c1", user_id="u1", document_id=doc1, text="Kubernetes expert"),
+        chunk_index=0,
+    )
+    chunks.add(
+        EvidenceChunk(chunk_id="c2", user_id="u1", document_id=doc2, text="Kubernetes expert too"),
+        chunk_index=0,
+    )
+
+    all_hits = chunks.search_keywords(user_id="u1", query="Kubernetes", limit=10)
+    scoped_hits = chunks.search_keywords(
+        user_id="u1", query="Kubernetes", limit=10, document_ids=[doc1]
+    )
+    empty_hits = chunks.search_keywords(user_id="u1", query="Kubernetes", limit=10, document_ids=[])
+
+    assert len(all_hits) == 2
+    assert [h["chunk_id"] for h in scoped_hits] == ["c1"]
+    assert empty_hits == []
+
+
+# --- ResumeRepository: export bytes, job linkage, rejection data -----------
+
+
+def test_resumeRepository_create_persistsJobIdExportsAndRejectionData(
+    db: sqlite3.Connection,
+) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    jobs = JobRepository(db)
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+    resumes = ResumeRepository(db)
+    draft = ResumeDraft(summary="s", sections=[ResumeSection(heading="Skills", bullets=["Python"])])
+
+    resume_id = resumes.create(
+        user_id="u1",
+        draft=draft,
+        job_title="Engineer",
+        trust_score=62.0,
+        ats_score=78.0,
+        passed=False,
+        job_id=job_id,
+        pdf_bytes=b"%PDF-1.4 fake",
+        markdown_text="# s",
+        rejection_reason="Trust score 62 (needs >= 90).",
+        improvement_suggestions="Improve evidence-grounding.",
+    )
+
+    row = resumes.get_row(user_id="u1", resume_id=resume_id)
+    assert row is not None
+    assert row["job_id"] == job_id
+    assert bytes(row["pdf_bytes"]) == b"%PDF-1.4 fake"
+    assert row["markdown_text"] == "# s"
+    assert row["rejection_reason"] == "Trust score 62 (needs >= 90)."
+    assert row["improvement_suggestions"] == "Improve evidence-grounding."
+    # Isolation still holds for the new row-returning accessor.
+    assert resumes.get_row(user_id="u2", resume_id=resume_id) is None
+
+
+def test_resumeRepository_listForJob_scopedToJobAndUser(db: sqlite3.Connection) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    jobs = JobRepository(db)
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+    other_job_id = jobs.create(
+        user_id="u1", raw_posting="y", job=JobDescription(raw_text="y"), summary=None
+    )
+    resumes = ResumeRepository(db)
+    resumes.create(
+        user_id="u1",
+        draft=ResumeDraft(iteration=0),
+        job_title=None,
+        trust_score=90.0,
+        ats_score=90.0,
+        passed=True,
+        job_id=job_id,
+    )
+    resumes.create(
+        user_id="u1",
+        draft=ResumeDraft(iteration=0),
+        job_title=None,
+        trust_score=90.0,
+        ats_score=90.0,
+        passed=True,
+        job_id=other_job_id,
+    )
+
+    for_job = resumes.list_for_job(user_id="u1", job_id=job_id)
+    assert len(for_job) == 1
+    assert resumes.list_for_job(user_id="u2", job_id=job_id) == []
+
+
+def test_resumeRepository_jobDeletedSetsJobIdNull_keepsJobTitleSnapshot(
+    db: sqlite3.Connection,
+) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    jobs = JobRepository(db)
+    job_id = jobs.create(
+        user_id="u1", raw_posting="x", job=JobDescription(raw_text="x"), summary=None
+    )
+    resumes = ResumeRepository(db)
+    resume_id = resumes.create(
+        user_id="u1",
+        draft=ResumeDraft(iteration=0),
+        job_title="Engineer",
+        trust_score=90.0,
+        ats_score=90.0,
+        passed=True,
+        job_id=job_id,
+    )
+
+    jobs.delete(user_id="u1", job_id=job_id)
+
+    row = resumes.get_row(user_id="u1", resume_id=resume_id)
+    assert row is not None
+    assert row["job_id"] is None
+    assert row["job_title"] == "Engineer"

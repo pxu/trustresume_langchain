@@ -70,6 +70,8 @@ class _GraphState(TypedDict):
     job_posting: str
     gate: QualityGate
     job: JobDescription | None
+    job_id: str | None
+    document_ids: list[str] | None
     candidate_profile: CandidateProfile | None
     evidence: EvidenceSet | None
     drafts: Annotated[list[ResumeDraft], operator.add]
@@ -125,6 +127,18 @@ class Orchestrator:
     # --- nodes --------------------------------------------------------------
 
     async def _analyze_job(self, state: _GraphState) -> dict[str, object]:
+        """Extract the job description, unless one was already supplied.
+
+        A caller re-using a persisted ``JobDescription`` (``run(job=...)``)
+        pre-populates ``state["job"]`` before the graph starts — this node
+        then becomes a no-op rather than re-running the extraction, without
+        the graph's shape (nodes/edges) changing at all. Keeping one fixed,
+        unconditionally-built graph rather than branching the graph itself
+        is deliberate: it means every other node, `_route`'s exhaustion
+        check, and `_prepare_rewrite`'s increment are untouched by this.
+        """
+        if state["job"] is not None:
+            return {}
         job = await self._job.run(state["job_posting"])
         return {"job": job}
 
@@ -134,7 +148,9 @@ class Orchestrator:
 
     async def _retrieve_evidence(self, state: _GraphState) -> dict[str, object]:
         assert state["job"] is not None
-        evidence = await self._retrieval.run(user_id=state["user_id"], job=state["job"])
+        evidence = await self._retrieval.run(
+            user_id=state["user_id"], job=state["job"], document_ids=state["document_ids"]
+        )
         return {"evidence": evidence}
 
     async def _write_resume(self, state: _GraphState) -> dict[str, object]:
@@ -216,22 +232,36 @@ class Orchestrator:
         self,
         *,
         user_id: str,
-        job_posting: str,
+        job_posting: str | None = None,
+        job: JobDescription | None = None,
+        job_id: str | None = None,
+        document_ids: list[str] | None = None,
         gate: QualityGate | None = None,
     ) -> WorkflowState:
-        """Generate a resume for ``user_id`` against ``job_posting``.
+        """Generate a resume for ``user_id`` against a job posting.
+
+        Exactly one of ``job_posting`` (the legacy path: raw text,
+        re-extracted here every call) or ``job`` (a pre-extracted, typically
+        persisted ``JobDescription`` — re-extraction is skipped) must be
+        given. ``job_id``/``document_ids`` are carried through for job-scoped
+        retrieval and persistence but change no control flow.
 
         Returns the full :class:`WorkflowState` — every draft, every score,
         and the final pass/fail — so the caller can inspect the whole run, not
         just the final draft.
         """
+        if (job_posting is None) == (job is None):
+            raise ValueError("exactly one of job_posting or job must be given")
+
         resolved_gate = gate or QualityGate()
         logger.info("generation run started", extra={"user_id": user_id})
         initial: _GraphState = {
             "user_id": user_id,
-            "job_posting": job_posting,
+            "job_posting": job_posting or "",
             "gate": resolved_gate,
-            "job": None,
+            "job": job,
+            "job_id": job_id,
+            "document_ids": document_ids,
             "candidate_profile": None,
             "evidence": None,
             "drafts": [],
@@ -261,6 +291,7 @@ class Orchestrator:
         return WorkflowState(
             user_id=result["user_id"],
             gate=result["gate"],
+            job_id=result["job_id"],
             job=result["job"],
             candidate_profile=result["candidate_profile"],
             evidence=result["evidence"],
