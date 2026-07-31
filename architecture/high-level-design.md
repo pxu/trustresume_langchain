@@ -6,58 +6,66 @@ of [`trustresume`](https://github.com/pxu/trustresume) (pydantic-ai + Qdrant)
 on LangChain + LangGraph + ChromaDB, keeping the same overall architecture and
 the SQLite storage layer unchanged. Read the original's `architecture/` docs
 for the fuller design rationale (requirements, ADRs 0002/0004–0009 all still
-apply here); this doc covers what's the same, what changed, and why.
+apply here); this doc covers what's the same, what changed, and why —
+including additions made after the initial port that don't exist in the
+original at all (hybrid retrieval, ingestion dedup, a Streamlit frontend,
+CI/Docker).
 
 ## System overview
 
 ```
-                            ┌─────────────────────────────┐
-                            │  FastAPI backend (api/)      │
-                            │  ─ server.py (routes)        │
-                            │  ─ TrustResumeApp (facade)   │
-                            └─────────────┬───────────────┘
-                                          │ drives
-                            ┌─────────────▼───────────────┐
-                            │  Orchestrator (LangGraph)    │
-                            │  StateGraph owns the graph   │
-                            │  state + the quality loop     │
-                            └──┬───┬───┬───┬───┬───────────┘
-                sequences ─────┘   │   │   │   └───────────────┐
-                          ┌────────▼┐ ┌▼──────┐ ┌▼───────┐ ┌▼─────────┐
-                          │  Job   │ │Retriev│ │ Resume │ │  Trust   │ │ ATS  │
-                          │ Desc   │ │  al   │ │ Writer │ │ Harness  │ │ Eval │
-                          └───┬────┘ └──┬────┘ └───┬────┘ └────┬─────┘ └──┬───┘
-                              │         │          │           │          │
-                              │    ┌────▼──────────▼───────────▼──────────▼┐
-                              │    │  shared models (unchanged) pass between all │
-                              │    └─────────────────────────────────────┬─┘
-                    ┌─────────▼───────────┐              ┌───────────────▼────────┐
-                    │  ingestion (M3)     │              │ trust_verification/    │
-                    │  write path         │              │ evaluation (unchanged) │
-                    └──────┬───────┬──────┘              └────────────────────────┘
-                    ┌──────▼──┐ ┌──▼─────────┐
-                    │ SQLite  │ │  Chroma     │   hybrid store (ADR-0001)
-                    │ storage │ │  retrieval  │   both keyed by user_id
-                    └─────────┘ └─────────────┘
+              ┌─────────────────────────────┐        ┌───────────────────────┐
+              │  Streamlit UI (ui/)          │──HTTP─▶│  FastAPI backend (api/) │
+              │  thin REST client only       │        │  ─ server.py (routes)   │
+              └─────────────────────────────┘        │  ─ TrustResumeApp (facade)│
+                                                       └─────────────┬───────────┘
+                                                                     │ drives
+                                                       ┌─────────────▼───────────────┐
+                                                       │  Orchestrator (LangGraph)    │
+                                                       │  StateGraph owns the graph   │
+                                                       │  state + the quality loop     │
+                                                       └──┬───┬───┬───┬───┬───────────┘
+                                   sequences ─────────────┘   │   │   │   └───────────────┐
+                                             ┌────────▼┐ ┌▼──────┐ ┌▼───────┐ ┌▼─────────┐
+                                             │  Job   │ │Retriev│ │ Resume │ │  Trust   │ │ ATS  │
+                                             │ Desc   │ │  al   │ │ Writer │ │ Harness  │ │ Eval │
+                                             └───┬────┘ └──┬────┘ └───┬────┘ └────┬─────┘ └──┬───┘
+                                                 │         │          │           │          │
+                                                 │    ┌────▼──────────▼───────────▼──────────▼┐
+                                                 │    │  shared models (unchanged) pass between all │
+                                                 │    └─────────────────────────────────────┬─┘
+                                       ┌─────────▼───────────┐              ┌───────────────▼────────┐
+                                       │  ingestion (M3)     │              │ trust_verification/    │
+                                       │  write path         │              │ evaluation (unchanged) │
+                                       │  + content-hash dedup│              └────────────────────────┘
+                                       └──────┬───────┬──────┘
+                                       ┌──────▼──┐ ┌──▼─────────────────┐
+                                       │ SQLite  │ │  Chroma + FTS5      │  hybrid store (ADR-0001)
+                                       │ storage │ │  vector + keyword,  │  both keyed by user_id,
+                                       │         │ │  fused by RRF        │  hybrid retrieval (ADR-0010)
+                                       └─────────┘ └─────────────────────┘
 ```
 
 A sixth agent, `CandidateProfileAgent`, isn't pictured — it's job-independent
 and cached, invoked through `CandidateProfileService` rather than directly by
-the orchestrator, exactly as in the original.
+the orchestrator, exactly as in the original. The Evidence Retrieval agent
+queries a `HybridRetriever` (vector + keyword, ADR-0010), not Chroma directly.
 
 ## Components
 
 | Layer | Package | What changed from the original |
 |---|---|---|
-| **HTTP** | `api/server.py` | Unchanged (routes, DTO translation) — operates on `WorkflowState`/the facade, not agent internals. |
-| **Facade** | `api/app_service.py` | Collaborator types only: `ChromaVectorStore` instead of `QdrantVectorStore`, a LangChain `BaseChatModel` instead of a pydantic-ai `Model`. Construction order/logic unchanged. |
+| **Frontend** | `ui/` | New — not in the original at all. Streamlit app (`streamlit_app.py`) + a thin REST client (`api_client.py`'s `TrustResumeClient`); imports nothing from `trustresume.api`/`orchestration`, so the dependency points one way (UI → HTTP → backend) and `streamlit` stays an optional (`ui`) extra. |
+| **HTTP** | `api/server.py` | Routes unchanged in spirit, extended: `/api/documents` (JSON), `/api/documents/upload` (multipart, server-side parsing), `/api/search` (standalone retrieval, new), `/api/generate`, `/api/ping`, `/api/health`. Still operates on `WorkflowState`/the facade, not agent internals. |
+| **Facade** | `api/app_service.py` | Collaborator types: `HybridRetriever` (not `ChromaVectorStore` directly) feeds `EvidenceRetrievalAgent`; a LangChain `BaseChatModel` instead of a pydantic-ai `Model`. Also exposes `add_document_bytes`/`search_evidence` for the API layer. |
 | **LLM provider factory** | `api/model_factory.py` | Same `LLMConfig` + precedence logic (env > llm.local.json > llm.json > default); provider dispatch retargeted to `langchain_aws`/`langchain_openai`/`langchain_google_genai`. The offline `"test"` provider is a new, more capable `AutoStructuredFakeChatModel` (`api/test_provider.py`) that synthesizes valid structured output for *any* bound schema, so `TRUSTRESUME_LLM_PROVIDER=test` can drive the full pipeline with no credentials (the original's pydantic-ai `TestModel` had this "synthesize anything" ability natively; LangChain's fakes don't, so it's rebuilt here). |
-| **Control** | `orchestration/orchestrator.py` | Rebuilt as a LangGraph `StateGraph` (ADR-0003, superseding the original's ADR-0003). Public contract (constructor, `run()` signature, return type) unchanged. `feedback.py`, `candidate_profile_service.py` unchanged. |
-| **Workers** | `agents/` | Each LLM-backed agent swaps a pydantic-ai `Agent` for `chat_model.with_structured_output(Schema)`; the exact post-processing quirks (force-preserving `raw_text`, force-stamping `iteration`, `TrustHarnessAgent`'s private `_ClaimExtraction` schema) are preserved. Deterministic agents (`EvidenceRetrievalAgent`, `ATSEvaluationAgent`) are unchanged apart from the vector-store type. |
+| **Control** | `orchestration/orchestrator.py` | Rebuilt as a LangGraph `StateGraph` (ADR-0003, superseding the original's ADR-0003). Public contract (constructor, `run()` signature, return type) unchanged. `feedback.py`, `candidate_profile_service.py` unchanged. Logs each node transition and the quality-gate routing decision (`logging_config.py`, new). |
+| **Workers** | `agents/` | Each LLM-backed agent swaps a pydantic-ai `Agent` for `chat_model.with_structured_output(Schema)`. `ResumeWriterAgent` binds a lenient private `_DraftExtraction` schema rather than `ResumeDraft` directly — real models emit structural noise (empty section headings, the summary emitted as its own section, bare group-label sections) that would otherwise crash structured-output parsing; `_to_resume_draft` cleans it up in code. `TrustHarnessAgent`'s private `_ClaimExtraction` schema is unchanged from the original port. `EvidenceRetrievalAgent` now takes any retriever satisfying a `search(user_id, query, limit) -> EvidenceSet` protocol (`ChromaVectorStore` or `HybridRetriever`), not `ChromaVectorStore` specifically. `ATSEvaluationAgent` unchanged. |
 | **Domain logic** | `trust_verification/`, `evaluation/` | Unchanged — pure string-building and scoring functions, no framework dependency. |
-| **Write path** | `ingestion/` | Unchanged except the vector-store type; the write-then-upsert, roll-back-on-failure contract is identical. |
-| **Data** | `storage/` (SQLite), `retrieval/` (Chroma) | `storage/` ported byte-for-byte. `retrieval/` rebuilt on Chroma (ADR-0001): `embedder.py` implements `langchain_core.embeddings.Embeddings` instead of a custom `Embedder` protocol; `vector_store.py`'s `ChromaVectorStore` keeps the same three-method surface (`upsert_chunks`/`search`/`delete_chunks`) as the original's `QdrantVectorStore`. `query.py` unchanged. |
+| **Write path** | `ingestion/` | Parsing (`.docx`/`.pdf`) now goes through `unstructured.partition.auto.partition` (one shared entry point, replacing separate python-docx/pypdf functions); chunking uses LangChain's `RecursiveCharacterTextSplitter`. New: content-hash dedup — `IngestionService.ingest_text` checks `DocumentRepository.find_by_content_hash` before writing anything, so re-uploading the same document (by cleaned-text hash) is a no-op that returns the existing document id rather than duplicating chunks in both stores. The write-then-upsert, roll-back-on-failure contract for genuinely new documents is unchanged. |
+| **Data** | `storage/` (SQLite), `retrieval/` (Chroma + FTS5) | `storage/` ported byte-for-byte, plus: `documents.content_hash` + a `UNIQUE(user_id, content_hash)` index (ingestion dedup), and a `chunks_fts` FTS5 virtual table + sync triggers (keyword search). `retrieval/` rebuilt on Chroma (ADR-0001) *and* extended with `HybridRetriever` (ADR-0010), which fuses `ChromaVectorStore.search` with `ChunkRepository.search_keywords` via Reciprocal Rank Fusion. `embedder.py` implements `langchain_core.embeddings.Embeddings`; `vector_store.py`'s `ChromaVectorStore` keeps the same three-method surface (`upsert_chunks`/`search`/`delete_chunks`) as the original's `QdrantVectorStore`. `query.py` unchanged. |
 | **Contracts** | `models/` | Unchanged — pure pydantic, no framework dependency anywhere in this package. |
+| **Observability** | `logging_config.py` | New — not in the original. Stdlib `logging` + a `JsonFormatter` (one JSON object per line); `configure_logging()` runs once, at `server.py`'s `build_served_app` (the real process entry point), never from library code. |
 
 ## The generation data flow
 
@@ -67,7 +75,7 @@ already ingested):
 ```
 1. job_description_agent.run(posting)          → JobDescription  (once)
 2. candidate_profile_service.get_or_refresh(user_id) → CandidateProfile (once; usually a cache hit)
-3. retrieval_agent.run(user_id, job)            → EvidenceSet     (once; Chroma, user-filtered)
+3. retrieval_agent.run(user_id, job)            → EvidenceSet     (once; hybrid vector+keyword, user-filtered)
    ┌── quality loop (≤ 4 passes: initial + 3 rewrites) ─────────────────────┐
 4. resume_agent.run(job, evidence, feedback?)  → ResumeDraft
 5. trust_agent.run(draft, evidence)             → TrustReport  (LLM classifies, code scores)
@@ -82,7 +90,13 @@ already ingested):
 
 Steps 1–6 now execute as LangGraph nodes/edges rather than a hand-rolled
 `while` loop (ADR-0003), but the sequencing, the one-time-vs-per-rewrite
-split, and the exact iteration-counting semantics are unchanged.
+split, and the exact iteration-counting semantics are unchanged. Step 3's
+retrieval is now hybrid (ADR-0010) rather than vector-only, but the shape
+(`EvidenceRetrievalAgent.run(user_id, job) -> EvidenceSet`) the orchestrator
+depends on is identical either way.
+
+A standalone `POST /api/search` runs the same hybrid retrieval outside a full
+generation, for inspecting retrieval quality directly.
 
 ## Testing model
 
@@ -92,13 +106,21 @@ without network access or credentials.
 | Real dependency | Test double |
 |---|---|
 | SQLite file | `connect(":memory:")` (unchanged) |
-| Chroma | `chromadb.EphemeralClient()` |
-| Embedding model | `FakeEmbeddings` (`tests/fakes.py`) — same SHA-256 hashing as the original's `FakeEmbedder`, adapted to `Embeddings`'s two-method interface |
+| Chroma | `chromadb.EphemeralClient()` — unique collection name per test/app instance (`TrustResumeApp`'s `chroma_collection_name` param) |
+| SQLite FTS5 keyword search | Runs for real against `connect(":memory:")` — FTS5 needs no external service, so there's no fake for it |
+| Embedding model | `FakeEmbeddings` (`tests/fakes.py`) — same SHA-256 hashing as the original's `FakeEmbedder`; the real `FastEmbedEmbeddings`'s lazy-load contract is unit-tested by mocking `fastembed.TextEmbedding`, its real output by a `live`-marked test |
+| Document parsing (.docx/.pdf) | `unstructured.partition.auto.partition` is mocked for the element-joining unit test; real parsing of real sample files is exercised by `live`-marked tests |
 | LLM (unit tests) | `FakeToolCallingChatModel` + `scripted_tool_call(name, args)` (`tests/fakes.py`) — the LangChain analog of pydantic-ai's `TestModel(custom_output_args=...)`; scripted per test since there's no post-hoc `.override()` hook |
 | LLM (`provider="test"`) | `AutoStructuredFakeChatModel` (`api/test_provider.py`) — synthesizes valid structured output for any schema, so the shipped offline mode (not just unit tests) works end-to-end |
+| Streamlit frontend | `streamlit.testing.v1.AppTest` drives the real script with `requests.Session` mocked at the `api_client` import site — no browser needed |
+
+Coverage gate: `pytest`'s `addopts` enforces `--cov-fail-under=95` (actual is
+~99%); `poc/*` is excluded (it's a manual, credential-requiring smoke test by
+its own docstring).
 
 ## Out of scope for this port
 
-The React frontend, `experiments/`, and `notebooks/week4_retrieval_optimization.py`
-from the original weren't ported — this port focused on the backend
-(models → storage → retrieval → ingestion → agents → orchestration → API).
+`experiments/` and `notebooks/week4_retrieval_optimization.py` from the
+original weren't ported. (The React frontend was replaced, not ported — this
+version's frontend is the new Streamlit UI in `ui/`, not a port of the
+original's React app.)

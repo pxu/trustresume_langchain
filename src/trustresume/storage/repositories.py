@@ -16,6 +16,7 @@ Milestone M2 (storage + retrieval).
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import uuid
 from collections.abc import Callable
@@ -84,17 +85,56 @@ class DocumentRepository(_BaseRepository):
         user_id: str,
         filename: str,
         document_type: DocumentType,
+        content_hash: str,
         document_id: str | None = None,
     ) -> str:
-        """Insert a document row and return its id."""
+        """Insert a document row and return its id.
+
+        ``content_hash`` backs the ``idx_documents_user_content`` unique index
+        (same user + same hash -> ``sqlite3.IntegrityError``) — the DB-level
+        half of duplicate-ingestion detection; ``IngestionService`` checks
+        first via :meth:`find_by_content_hash` so a duplicate upload returns
+        the existing document id instead of hitting this constraint at all.
+        """
         doc_id = document_id or self._new_id()
         self._conn.execute(
-            "INSERT INTO documents (id, user_id, filename, document_type, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (doc_id, user_id, filename, document_type.value, self._now()),
+            "INSERT INTO documents "
+            "(id, user_id, filename, document_type, content_hash, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (doc_id, user_id, filename, document_type.value, content_hash, self._now()),
         )
         self._conn.commit()
         return doc_id
+
+    def find_by_content_hash(self, *, user_id: str, content_hash: str) -> sqlite3.Row | None:
+        """The existing document row for this user + content hash, if any.
+
+        The read half of duplicate-ingestion detection: ``IngestionService``
+        calls this before writing anything, so re-uploading the same document
+        is a cheap no-op read rather than a wasted embed/chunk/write cycle.
+        """
+        row: sqlite3.Row | None = self._conn.execute(
+            "SELECT * FROM documents WHERE user_id = ? AND content_hash = ?",
+            (user_id, content_hash),
+        ).fetchone()
+        return row
+
+    def delete(self, *, user_id: str, document_id: str) -> None:
+        """Delete one document row.
+
+        Without this, ``IngestionService.delete_document`` had no way to
+        remove the ``documents`` row itself (only the chunk rows) — the row's
+        ``content_hash`` stayed live in ``idx_documents_user_content``
+        forever, so re-uploading identical content after a delete was
+        silently treated as "already ingested" and produced a document with
+        zero chunks. Called by ``IngestionService`` on both an explicit
+        delete and a failed post-create Chroma upsert (same reason: an
+        orphaned ``documents`` row with no chunks must not survive).
+        """
+        self._conn.execute(
+            "DELETE FROM documents WHERE user_id = ? AND id = ?", (user_id, document_id)
+        )
+        self._conn.commit()
 
     def list_for_user(self, user_id: str) -> list[sqlite3.Row]:
         """All documents owned by ``user_id``, newest first."""
@@ -157,6 +197,45 @@ class ChunkRepository(_BaseRepository):
         )
         self._conn.commit()
         return [r["chunk_id"] for r in rows]
+
+    def search_keywords(self, *, user_id: str, query: str, limit: int = 5) -> list[sqlite3.Row]:
+        """Full-text (BM25) search over this user's chunks via the ``chunks_fts`` index.
+
+        The keyword half of hybrid retrieval (``retrieval.hybrid.HybridRetriever``)
+        — a term the embedding model treats as semantically fungible with a
+        synonym (e.g. "Lambda" vs. "serverless") but that a job description
+        names exactly still gets matched. Returns rows ordered by BM25 rank
+        (SQLite's ``bm25()``: lower is more relevant, so ``ORDER BY`` ascending);
+        an empty/non-alphanumeric query returns no rows rather than raising.
+        """
+        fts_query = _to_fts5_query(query)
+        if not fts_query:
+            return []
+        return self._conn.execute(
+            "SELECT chunks.*, bm25(chunks_fts) AS rank FROM chunks_fts "
+            "JOIN chunks ON chunks.rowid = chunks_fts.rowid "
+            "WHERE chunks_fts MATCH ? AND chunks.user_id = ? "
+            "ORDER BY rank, chunks.chunk_id LIMIT ?",
+            (fts_query, user_id, limit),
+        ).fetchall()
+
+
+_FTS5_TOKEN = re.compile(r"[A-Za-z0-9]+")
+
+
+def _to_fts5_query(query: str) -> str:
+    """Turn free text into a safe FTS5 ``MATCH`` expression.
+
+    FTS5's query syntax treats punctuation specially (``-``, ``"``, ``*``,
+    ``:``, ``/``, ...), so passing a raw job-description string straight to
+    ``MATCH`` raises a syntax error the moment it contains e.g. "AI/ML" or a
+    parenthesis. Tokenizing to bare alphanumeric words and quoting each as its
+    own phrase, OR-joined, sidesteps that entirely — every token becomes a
+    literal-text match, and OR means any matching token surfaces the chunk
+    (BM25 ranks chunks matching more/rarer tokens higher).
+    """
+    tokens = _FTS5_TOKEN.findall(query)
+    return " OR ".join(f'"{t}"' for t in tokens)
 
 
 class CandidateProfileCacheEntry:

@@ -15,8 +15,15 @@ Milestone M7 (API).
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+
+from trustresume.ingestion import UnsupportedDocumentError
+from trustresume.models import DocumentType
 
 from .app_service import TrustResumeApp
 from .schemas import (
@@ -24,16 +31,36 @@ from .schemas import (
     DocumentSummary,
     GenerateRequest,
     GenerateResponse,
+    SearchRequest,
+    SearchResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 # Single-user demo id (mirrors the MVP scope); every store call is still
 # user-scoped (ADR-0001), so real auth slots in by replacing this.
 DEMO_USER_ID = "demo-user"
 
+# A résumé/job-posting upload has no legitimate reason to approach this;
+# caps memory use per upload instead of buffering an unbounded body.
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
 
 def create_app(app_facade: TrustResumeApp) -> FastAPI:
     """Build the FastAPI application around an injected facade."""
-    api = FastAPI(title="TrustResume API", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # Release the facade's SQLite connection/Chroma client on server
+        # stop. Tests build a fresh in-memory facade per test via
+        # TestClient (which drives this same lifespan) and don't otherwise
+        # call close(); ``build_served_app`` builds one real, file-backed
+        # facade for uvicorn's whole process lifetime — this is what stops
+        # it outliving the server.
+        yield
+        app_facade.close()
+
+    api = FastAPI(title="TrustResume API", version="0.1.0", lifespan=lifespan)
 
     # A local frontend, if one is added later, would run on a different
     # origin; allow it to call us.
@@ -125,12 +152,72 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
             id=doc_id, filename=req.filename, document_type=req.document_type.value
         )
 
+    @api.post("/api/documents/upload", response_model=DocumentSummary, status_code=201)
+    async def upload_document(
+        file: UploadFile = File(...),  # noqa: B008 — FastAPI's DI idiom for upload params
+        document_type: DocumentType = Form(DocumentType.OTHER),  # noqa: B008
+    ) -> DocumentSummary:
+        """Ingest a raw file upload (.txt/.md/.docx) — no client-side parsing needed.
+
+        Complements ``POST /api/documents`` (which takes already-extracted
+        text): this route reads the upload's bytes and parses them
+        server-side, so a plain file-picker UI (the Streamlit frontend) can
+        hand over the file exactly as the user selected it.
+        """
+        data = await file.read(_MAX_UPLOAD_BYTES + 1)
+        if not data:
+            raise HTTPException(status_code=422, detail="uploaded file is empty")
+        if len(data) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"uploaded file exceeds the {_MAX_UPLOAD_BYTES} byte limit",
+            )
+        try:
+            doc_id = app_facade.add_document_bytes(
+                user_id=DEMO_USER_ID,
+                filename=file.filename or "upload",
+                data=data,
+                document_type=document_type,
+            )
+        except UnsupportedDocumentError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return DocumentSummary(
+            id=doc_id, filename=file.filename or "upload", document_type=document_type.value
+        )
+
+    @api.delete("/api/documents/{document_id}", status_code=204)
+    def delete_document(document_id: str) -> None:
+        """Remove one of the demo user's documents from both stores.
+
+        404s if ``document_id`` doesn't exist or belongs to a different user
+        — ``TrustResumeApp.delete_document`` checks ownership before deleting.
+        """
+        found = app_facade.delete_document(user_id=DEMO_USER_ID, document_id=document_id)
+        if not found:
+            raise HTTPException(status_code=404, detail="document not found")
+
+    @api.post("/api/search", response_model=SearchResponse)
+    def search(req: SearchRequest) -> SearchResponse:
+        """Ad-hoc semantic search over the demo user's own ingested evidence.
+
+        Exposes retrieval directly (the same Chroma search a generation runs
+        internally) so a caller can inspect what the RAG pipeline would
+        retrieve for a query, without running a full — and much more
+        expensive — ``/api/generate``.
+        """
+        evidence = app_facade.search_evidence(
+            user_id=DEMO_USER_ID, query=req.query, limit=req.limit
+        )
+        return SearchResponse.from_evidence(evidence)
+
     @api.post("/api/generate", response_model=GenerateResponse)
     def generate(req: GenerateRequest) -> GenerateResponse:
+        logger.info("generate requested", extra={"user_id": DEMO_USER_ID})
         state = app_facade.generate(user_id=DEMO_USER_ID, job_posting=req.job_posting)
         try:
             return GenerateResponse.from_state(state)
         except ValueError as exc:  # no scored draft produced
+            logger.exception("generate produced no scored draft", extra={"user_id": DEMO_USER_ID})
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return api
@@ -167,9 +254,12 @@ def build_served_app() -> FastAPI:
     """
     import os
 
+    from trustresume.logging_config import configure_logging
+
     from .app_service import build_default_app
     from .model_factory import LLMConfig
 
+    configure_logging()
     return create_app(
         build_default_app(
             db_path=os.getenv("TRUSTRESUME_DB_PATH", "trustresume.db"),

@@ -30,6 +30,7 @@ Milestone M5 (orchestration).
 
 from __future__ import annotations
 
+import logging
 import operator
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -55,6 +56,8 @@ from trustresume.models import (
 
 from .candidate_profile_service import CandidateProfileService
 from .feedback import build_feedback
+
+logger = logging.getLogger(__name__)
 
 
 # LangGraph's internal working state. Kept private to this module — every
@@ -147,16 +150,39 @@ class Orchestrator:
     async def _score_trust(self, state: _GraphState) -> dict[str, object]:
         assert state["evidence"] is not None
         trust = await self._trust.run(draft=state["drafts"][-1], evidence=state["evidence"])
+        logger.info(
+            "trust scored",
+            extra={
+                "user_id": state["user_id"],
+                "iteration": state["iteration"],
+                "trust_score": trust.score,
+                "hallucinations": len(trust.hallucinations),
+            },
+        )
         return {"trust_reports": [trust]}
 
     async def _score_ats(self, state: _GraphState) -> dict[str, object]:
         assert state["job"] is not None
         ats = await self._evaluation.run(draft=state["drafts"][-1], job=state["job"])
+        logger.info(
+            "ats scored",
+            extra={
+                "user_id": state["user_id"],
+                "iteration": state["iteration"],
+                "ats_score": ats.score,
+                "missing_keywords": len(ats.missing_keywords),
+            },
+        )
         return {"ats_reports": [ats]}
 
     async def _prepare_rewrite(self, state: _GraphState) -> dict[str, object]:
         feedback = build_feedback(state["trust_reports"][-1], state["ats_reports"][-1])
-        return {"iteration": state["iteration"] + 1, "feedback": feedback}
+        next_iteration = state["iteration"] + 1
+        logger.info(
+            "preparing rewrite",
+            extra={"user_id": state["user_id"], "next_iteration": next_iteration},
+        )
+        return {"iteration": next_iteration, "feedback": feedback}
 
     def _route(self, state: _GraphState) -> Literal["rewrite", "end"]:
         """Mirrors ``WorkflowState.should_continue`` exactly.
@@ -171,7 +197,18 @@ class Orchestrator:
         gate = state["gate"]
         passed = gate.passes(state["trust_reports"][-1], state["ats_reports"][-1])
         is_exhausted = state["iteration"] >= gate.max_iterations
-        return "end" if (passed or is_exhausted) else "rewrite"
+        decision: Literal["rewrite", "end"] = "end" if (passed or is_exhausted) else "rewrite"
+        logger.info(
+            "quality gate routed",
+            extra={
+                "user_id": state["user_id"],
+                "iteration": state["iteration"],
+                "passed": passed,
+                "is_exhausted": is_exhausted,
+                "decision": decision,
+            },
+        )
+        return decision
 
     # --- public API -----------------------------------------------------------
 
@@ -189,6 +226,7 @@ class Orchestrator:
         just the final draft.
         """
         resolved_gate = gate or QualityGate()
+        logger.info("generation run started", extra={"user_id": user_id})
         initial: _GraphState = {
             "user_id": user_id,
             "job_posting": job_posting,
@@ -209,6 +247,17 @@ class Orchestrator:
         recursion_limit = 6 + 4 * resolved_gate.max_iterations + 10
         result = await self._graph.ainvoke(initial, config={"recursion_limit": recursion_limit})
 
+        final_trust = result["trust_reports"][-1].score if result["trust_reports"] else None
+        final_ats = result["ats_reports"][-1].score if result["ats_reports"] else None
+        logger.info(
+            "generation run finished",
+            extra={
+                "user_id": user_id,
+                "iterations": result["iteration"],
+                "final_trust_score": final_trust,
+                "final_ats_score": final_ats,
+            },
+        )
         return WorkflowState(
             user_id=result["user_id"],
             gate=result["gate"],

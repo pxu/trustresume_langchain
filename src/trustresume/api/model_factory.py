@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from langchain_core.language_models import BaseChatModel
@@ -40,7 +40,9 @@ class LLMConfig:
 
     provider: str = "bedrock"
     model: str | None = None
-    api_key: str | None = None
+    # repr=False so a stray `repr(config)`/`str(config)` (logging, an
+    # uncaught exception's traceback locals) can't leak the key in cleartext.
+    api_key: str | None = field(default=None, repr=False)
     aws_profile: str = BEDROCK_DEFAULT_PROFILE
     aws_region: str = BEDROCK_DEFAULT_REGION
 

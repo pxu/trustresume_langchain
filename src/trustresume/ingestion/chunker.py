@@ -1,11 +1,21 @@
 """Text cleaning and chunking.
 
 Both functions are pure (text in, text out) so they're trivially testable and
-carry no storage or model dependencies. The chunker splits on paragraph
-boundaries first — career documents are paragraph/bullet structured, and
-keeping a bullet or STAR story intact preserves the semantic unit the Trust
-Harness later retrieves against. Oversized paragraphs are hard-split as a
-fallback so no single chunk blows past the embedder's useful context.
+carry no storage or model dependencies.
+
+Chunking delegates to LangChain's ``RecursiveCharacterTextSplitter`` — the
+framework's recommended general-purpose splitter — rather than a hand-rolled
+loop. It splits recursively on the most semantic separator that fits (here:
+paragraph boundary → space → character), which keeps a bullet or STAR story
+intact where possible — the semantic unit the Trust Harness later retrieves
+against — and hard-splits only when a single paragraph overflows ``max_chars``.
+``chunk_overlap`` carries context across every boundary so a sentence
+straddling a split still appears whole in an adjacent chunk.
+
+``clean_text`` stays hand-rolled: it's whitespace normalization (a
+domain-specific preprocessing step), not chunking, and it collapses blank
+lines to a single ``\\n`` so the splitter's paragraph separator is exactly
+``"\\n"`` (see ``_SEPARATORS``).
 
 Milestone M3 (ingestion).
 """
@@ -14,12 +24,19 @@ from __future__ import annotations
 
 import re
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from trustresume.models import DocumentType, EvidenceChunk
 
 # Collapses runs of blank lines into a paragraph break, and runs of intra-line
 # whitespace into single spaces.
 _MULTI_BLANK = re.compile(r"\n\s*\n+")
 _INLINE_WS = re.compile(r"[ \t]+")
+
+# ``clean_text`` collapses paragraph breaks to a single ``\n`` (not ``\n\n``),
+# so the splitter's coarsest separator is ``"\n"``. The trailing ``""`` lets it
+# fall back to a raw character split for a paragraph that overflows on its own.
+_SEPARATORS = ["\n", " ", ""]
 
 
 def clean_text(text: str) -> str:
@@ -35,13 +52,11 @@ def clean_text(text: str) -> str:
 
 
 def chunk_text(text: str, *, max_chars: int = 800, overlap: int = 100) -> list[str]:
-    """Split cleaned text into chunks, preferring paragraph boundaries.
+    """Split cleaned text into chunks via ``RecursiveCharacterTextSplitter``.
 
-    Paragraphs are accumulated into a chunk until adding the next would exceed
-    ``max_chars``; a paragraph longer than ``max_chars`` on its own is
-    hard-split with ``overlap`` characters carried between pieces so a sentence
-    straddling the boundary still appears whole in one chunk. Returns an empty
-    list for empty input.
+    Recursively splits on the most semantic separator that keeps each chunk
+    within ``max_chars`` (paragraph → space → character), carrying ``overlap``
+    characters between adjacent chunks. Returns an empty list for empty input.
     """
     if not text.strip():
         return []
@@ -50,40 +65,13 @@ def chunk_text(text: str, *, max_chars: int = 800, overlap: int = 100) -> list[s
     if not 0 <= overlap < max_chars:
         raise ValueError("overlap must be >= 0 and < max_chars")
 
-    paragraphs = [p for p in text.split("\n") if p]
-    chunks: list[str] = []
-    current = ""
-
-    for para in paragraphs:
-        if len(para) > max_chars:
-            # Flush what we have, then hard-split the oversized paragraph.
-            if current:
-                chunks.append(current)
-                current = ""
-            chunks.extend(_hard_split(para, max_chars=max_chars, overlap=overlap))
-            continue
-
-        candidate = f"{current}\n{para}" if current else para
-        if len(candidate) <= max_chars:
-            current = candidate
-        else:
-            chunks.append(current)
-            current = para
-
-    if current:
-        chunks.append(current)
-    return chunks
-
-
-def _hard_split(text: str, *, max_chars: int, overlap: int) -> list[str]:
-    """Split a single long string into overlapping windows of ``max_chars``."""
-    step = max_chars - overlap
-    pieces: list[str] = []
-    start = 0
-    while start < len(text):
-        pieces.append(text[start : start + max_chars])
-        start += step
-    return pieces
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=max_chars,
+        chunk_overlap=overlap,
+        separators=_SEPARATORS,
+        keep_separator=False,
+    )
+    return splitter.split_text(text)
 
 
 def chunk_document(
@@ -98,15 +86,14 @@ def chunk_document(
 ) -> list[EvidenceChunk]:
     """``clean_text`` + ``chunk_text`` a document, wrapped into ``EvidenceChunk``s.
 
-    The reusable "raw document text -> tagged, storable chunks" step shared
-    by :class:`~trustresume.ingestion.service.IngestionService` (fixed at the
-    chunker's default ``max_chars``/``overlap``) and any caller that wants to
-    experiment with different chunking parameters against the same document
-    (e.g. a retrieval-quality evaluation sweeping ``max_chars``) without
-    duplicating the clean -> chunk -> wrap sequence. Each chunk's ``chunk_id``
-    is deterministic (``{document_id}-{index}``) rather than random, so
-    re-chunking the same document at a different ``max_chars`` is
-    reproducible.
+    Not currently called by :class:`~trustresume.ingestion.service.IngestionService`
+    — it inlines ``clean_text``/``chunk_text`` directly and assigns each chunk a
+    random id via its injectable ``id_factory``, so ``upsert_chunks`` retries
+    don't collide with a prior partial write. This function exists for callers
+    that want the "raw document text -> tagged, storable chunks" step as one
+    call with *deterministic* ids (``{document_id}-{index}``, reproducible
+    across repeated chunkings of the same document) — e.g. a retrieval-quality
+    evaluation sweeping ``max_chars`` against a fixed document.
     """
     cleaned = clean_text(text)
     pieces = chunk_text(cleaned, max_chars=max_chars, overlap=overlap)

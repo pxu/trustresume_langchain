@@ -11,11 +11,12 @@ Milestone M3 (ingestion).
 from __future__ import annotations
 
 from .chunker import chunk_text, clean_text
-from .parser import UnsupportedDocumentError, parse_document
+from .parser import UnsupportedDocumentError, parse_bytes, parse_document
 from .service import IngestionService
 
 __all__ = [
     "parse_document",
+    "parse_bytes",
     "UnsupportedDocumentError",
     "clean_text",
     "chunk_text",

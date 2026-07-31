@@ -203,3 +203,21 @@ def test_buildFeedback_scoreOnlyFailure_stillActionable() -> None:
     ats = ATSReport(score=80.0)
     feedback = build_feedback(trust, ats)
     assert "Trust 40" in feedback
+
+
+def test_buildFeedback_partiallySupportedClaims_askedToSoften() -> None:
+    trust = TrustReport(
+        claims=[
+            VerifiedClaim(
+                text="Led a large team",
+                category=ClaimCategory.EXPERIENCE,
+                status=ClaimStatus.PARTIALLY_SUPPORTED,
+            ),
+        ],
+        score=60.0,
+    )
+    ats = ATSReport(score=90.0)
+
+    feedback = build_feedback(trust, ats)
+    assert "Soften these claims" in feedback
+    assert "Led a large team" in feedback

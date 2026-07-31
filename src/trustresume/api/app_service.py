@@ -17,6 +17,7 @@ Milestone M7 (FastAPI backend).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sqlite3
 from typing import Any
 
@@ -32,9 +33,10 @@ from trustresume.agents import (
     TrustHarnessAgent,
 )
 from trustresume.ingestion import IngestionService
-from trustresume.models import DocumentType, WorkflowState
+from trustresume.models import DocumentType, EvidenceSet, WorkflowState
 from trustresume.orchestration import CandidateProfileService, Orchestrator
-from trustresume.retrieval import ChromaVectorStore
+from trustresume.retrieval import ChromaVectorStore, HybridRetriever
+from trustresume.retrieval.vector_store import COLLECTION_NAME
 from trustresume.storage import (
     CandidateProfileRepository,
     ChunkRepository,
@@ -59,8 +61,11 @@ class TrustResumeApp:
         chroma_client: Any,  # chromadb.ClientAPI — chromadb ships no type stubs
         embedder: Embeddings,
         model: BaseChatModel,
+        chroma_collection_name: str = COLLECTION_NAME,
     ) -> None:
         init_db(connection)
+        self._connection = connection
+        self._chroma_client = chroma_client
 
         # Storage (M2)
         self._users = UserRepository(connection)
@@ -70,8 +75,20 @@ class TrustResumeApp:
         self._resumes = ResumeRepository(connection)
         self._evaluations = EvaluationRepository(connection)
 
-        # Retrieval (M2)
-        self._vectors = ChromaVectorStore(chroma_client, embedder)
+        # Retrieval (M2). ``chroma_collection_name`` defaults to the shared
+        # production name; tests override it to a unique value per app
+        # instance — chromadb.EphemeralClient() caches its underlying storage
+        # by collection name across client instances within one process, so
+        # same-named collections leak state across "fresh" apps otherwise.
+        self._vectors = ChromaVectorStore(
+            chroma_client, embedder, collection_name=chroma_collection_name
+        )
+        # Hybrid retrieval: fuses the Chroma search above with a keyword
+        # (BM25) search over the same chunks' SQLite rows (chunks_fts) — see
+        # retrieval/hybrid.py. Both agents' retrieval (below) and the
+        # standalone search_evidence() go through this, not ChromaVectorStore
+        # directly, so every retrieval path in the app benefits equally.
+        self._retriever = HybridRetriever(self._vectors, self._chunks)
 
         # Ingestion (M3)
         self._ingestion = IngestionService(
@@ -90,7 +107,7 @@ class TrustResumeApp:
         self._orchestrator = Orchestrator(
             job_description_agent=JobDescriptionAgent(model),
             candidate_profile_service=candidate_profile_service,
-            retrieval_agent=EvidenceRetrievalAgent(self._vectors),
+            retrieval_agent=EvidenceRetrievalAgent(self._retriever),
             resume_agent=ResumeWriterAgent(model),
             trust_agent=TrustHarnessAgent(model),
             evaluation_agent=ATSEvaluationAgent(),
@@ -99,9 +116,19 @@ class TrustResumeApp:
     # --- user + document management ---------------------------------------
 
     def ensure_user(self, name: str, *, user_id: str) -> str:
-        """Create the user if absent; return the id. Idempotent."""
+        """Create the user if absent; return the id. Idempotent.
+
+        The existence check and the insert aren't one atomic transaction, so
+        two concurrent first-calls for the same new ``user_id`` can both see
+        ``exists() == False`` and both try to create it; the DB's primary-key
+        constraint is the real guarantee, and the loser just re-reads rather
+        than surfacing an ``IntegrityError`` — the same race/handling
+        ``DocumentRepository.create`` already applies for content-hash
+        collisions.
+        """
         if not self._users.exists(user_id):
-            self._users.create(name, user_id=user_id)
+            with contextlib.suppress(sqlite3.IntegrityError):
+                self._users.create(name, user_id=user_id)
         return user_id
 
     def add_document(
@@ -120,9 +147,48 @@ class TrustResumeApp:
             document_type=document_type,
         )
 
+    def add_document_bytes(
+        self,
+        *,
+        user_id: str,
+        filename: str,
+        data: bytes,
+        document_type: DocumentType = DocumentType.OTHER,
+    ) -> str:
+        """Ingest an uploaded file's raw bytes (e.g. a FastAPI ``UploadFile``); return its id."""
+        return self._ingestion.ingest_bytes(
+            user_id=user_id,
+            filename=filename,
+            data=data,
+            document_type=document_type,
+        )
+
     def list_documents(self, user_id: str) -> list[dict[str, object]]:
         """Document metadata for the user, as plain dicts for the API layer."""
         return [dict(row) for row in self._documents.list_for_user(user_id)]
+
+    def delete_document(self, *, user_id: str, document_id: str) -> bool:
+        """Remove a document (and its chunks/vectors) if the user owns it.
+
+        Returns whether a document was actually found and removed, so the API
+        layer can 404 rather than silently no-op on an unknown/foreign id.
+        """
+        if not any(row["id"] == document_id for row in self._documents.list_for_user(user_id)):
+            return False
+        self._ingestion.delete_document(user_id=user_id, document_id=document_id)
+        return True
+
+    # --- retrieval (ad-hoc, outside a generation run) -----------------------
+
+    def search_evidence(self, *, user_id: str, query: str, limit: int = 5) -> EvidenceSet:
+        """Hybrid (vector + keyword) search over a user's own ingested evidence.
+
+        The same hybrid search a generation's Evidence Retrieval step runs
+        internally, exposed standalone so a caller (the UI's "search" tab) can
+        inspect retrieval quality directly instead of only seeing its effect
+        buried inside a full ``generate()`` run. Still user-scoped (ADR-0001).
+        """
+        return self._retriever.search(user_id=user_id, query=query, limit=limit)
 
     # --- generation --------------------------------------------------------
 
@@ -153,6 +219,27 @@ class TrustResumeApp:
             passed=state.passed,
         )
         self._evaluations.create(user_id=state.user_id, resume_id=resume_id, trust=trust, ats=ats)
+
+    # --- lifecycle -----------------------------------------------------------
+
+    def close(self) -> None:
+        """Release the SQLite connection and Chroma client this app owns.
+
+        Both are handed to ``__init__`` by the caller (``build_default_app``
+        for the real app, a fixture for tests), so this doesn't destroy
+        anything the caller didn't already know it was giving up — it just
+        makes sure a long-running process (the FastAPI server, a one-shot
+        script) doesn't leak the open file handle/connection past its own
+        lifetime.
+        """
+        self._connection.close()
+        self._chroma_client.close()
+
+    def __enter__(self) -> TrustResumeApp:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
 
 def build_default_app(
