@@ -911,32 +911,36 @@ that justify hybrid retrieval's complexity: a document that never says
 embedder treats as interchangeable with competitors (keyword's job).
 
 Trust Harness (Bedrock Claude Opus 4.6, temperature 0, 12 labeled claims):
-**accuracy 0.500, macro-F1 0.489 — and zero too-lenient errors.**
+**accuracy 0.833, macro-F1 0.833, zero too-lenient errors** — after a prompt
+fix that this suite is the entire reason for.
 
-The harness has a **systematic one-notch-strict bias**. All six errors run in
-the same direction, each off by exactly one severity step: true statements
-judged PARTIALLY_SUPPORTED (t2, t3, t11), inflated statements judged
-UNSUPPORTED (t4, t6, t7). `confusion[X][more-lenient-than-X]` is 0 everywhere.
+The first run scored **0.500 / 0.489**. The per-case detail showed why: all six
+errors ran the same direction, each off by exactly one severity step. True
+statements were judged PARTIALLY_SUPPORTED, overstated ones UNSUPPORTED — a
+claim of "ran 23 postmortems over 18 months" against evidence reading "ran 23
+postmortems over 18 months" was downgraded.
 
-That finding is the harness paying for itself:
+The cause was the prompt, not the model. It said *"Be strict... do not give the
+draft the benefit of the doubt"* while never defining the three labels; with no
+boundaries, "be strict" becomes a uniform downgrade. The fix defines each
+label, states that a restatement, an entailed generalization, and a correctly
+derived figure are all SUPPORTED, and names the asymmetry between the two error
+types explicitly.
 
-- **The direction is the safe one** — UNSUPPORTED recall is 1.000, so no
-  fabrication was passed. Accuracy alone (0.500) reads like a broken verifier;
-  the `dangerous_errors` count is what distinguishes *miscalibrated* from
-  *failing*.
-- **It has a real cost.** t11 claims "Ran 23 incident postmortems over 18
-  months" against evidence saying "ran 23 postmortems over 18 months" — a
-  verbatim restatement, judged PARTIALLY_SUPPORTED. Under-crediting true
-  claims depresses the Trust score, pushing sound drafts back through the
-  rewrite loop and burning LLM calls.
-- **The fix is a prompt change, not code** — tighten what
-  `trust_verification/verifier.py` says SUPPORTED means (a restatement, or a
-  generalization the evidence entails, is fully supported). Re-run the suite
-  before and after; that's what a baseline is for.
+| | before | after |
+|---|---|---|
+| accuracy | 0.500 | **0.833** |
+| macro-F1 | 0.489 | **0.833** |
+| SUPPORTED recall | 0.25 | **1.00** |
+| too-lenient errors | 0 | **0** |
+
+That last row is the one that mattered: the harness got substantially more
+accurate **without getting more permissive**. Reproduced on two consecutive
+runs.
 
 None of this was visible from the runtime Trust score, which is computed from
 these very verdicts — a systematically strict harness just looks like "drafts
-that need more rewrites."
+that need more rewrites." The measurement had to exist before the bug could.
 
 Caveats stated plainly: 12 cases, single-annotator labels, at least two
 genuinely debatable (t6, t12). This is a **regression detector**, not a

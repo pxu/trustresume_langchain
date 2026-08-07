@@ -42,7 +42,9 @@
 - platform
 - logistics
 - high-volume
-- microservices
+- event-driven systems at scale
+- order pipeline
+- build and deploy tooling
 - mentoring
 
 ## Original posting

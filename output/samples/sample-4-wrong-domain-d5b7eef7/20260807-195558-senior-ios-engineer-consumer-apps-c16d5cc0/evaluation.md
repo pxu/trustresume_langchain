@@ -7,12 +7,8 @@ _Hit the rewrite cap without passing — this is the last draft, exported with i
 ## Trust Harness
 
 - **SUPPORTED** (EXPERIENCE) — Senior Backend Engineer with 5 years of experience
-- **SUPPORTED** (SKILL) — Designing high-throughput distributed systems
+- **SUPPORTED** (SKILL) — Designing high-throughput, event-driven systems
 - **SUPPORTED** (EXPERIENCE) — Leading engineering teams
-- **SUPPORTED** (EXPERIENCE) — Owning critical infrastructure
-- **SUPPORTED** (ACHIEVEMENT) — Ship production services processing tens of millions of events daily
-- **SUPPORTED** (ACHIEVEMENT) — Driving down latency and operational burden
-- **SUPPORTED** (EXPERIENCE) — Senior Backend Engineer at Northwind Logistics (2021–2026)
 - **SUPPORTED** (ACHIEVEMENT) — Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day
 - **SUPPORTED** (ACHIEVEMENT) — Cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer
 - **SUPPORTED** (ACHIEVEMENT) — Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that reduced mean build time from 11 minutes to 4 minutes
@@ -37,5 +33,5 @@ Where the evidence genuinely supports them, incorporate these target keywords th
 
 ## Run cost
 
-- 10 LLM calls · 24,765 tokens (16,476 in / 8,289 out)
-- 94.5s wall clock · unknown (no price configured for this model)
+- 10 LLM calls · 25,898 tokens (17,736 in / 8,162 out)
+- 95.0s wall clock · unknown (no price configured for this model)

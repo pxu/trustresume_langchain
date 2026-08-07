@@ -6,19 +6,19 @@
 ## Required skills
 - Go
 - Python
-- distributed systems
+- Distributed systems
 - Kafka
 - Kubernetes
 - PostgreSQL
-- high-cardinality time-series data
+- High-cardinality time-series data
 
 ## Preferred skills
 - OpenTelemetry instrumentation
 - gRPC
 - Prometheus
 - Grafana
-- on-call rotation experience
-- defining SLOs
+- On-call rotation experience
+- Defining SLOs
 
 ## Responsibilities
 - Own ingestion, storage, and query for metrics and traces
@@ -27,26 +27,23 @@
 ## ATS keywords
 - Backend Engineer
 - Observability
-- telemetry pipeline
+- Telemetry
 - Go
 - Python
-- distributed systems
+- Distributed systems
 - Kafka
 - Kubernetes
 - PostgreSQL
-- time-series data
-- high-cardinality
-- metrics
-- traces
+- Time-series data
 - OpenTelemetry
 - gRPC
 - Prometheus
 - Grafana
 - SLOs
-- on-call
-- ingestion
-- storage
-- query
+- Metrics
+- Traces
+- Ingestion
+- On-call
 
 ## Original posting
 ```
