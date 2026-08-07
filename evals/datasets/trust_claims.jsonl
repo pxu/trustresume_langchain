@@ -1,0 +1,32 @@
+# Trust Harness classification cases: one claim, its evidence, the correct verdict.
+#
+# Label definitions (must match models/enums.py's ClaimStatus, and the harness
+# prompt in trust_verification/verifier.py):
+#   SUPPORTED           - the evidence states this, or states something that
+#                         entails it
+#   PARTIALLY_SUPPORTED - the evidence supports the kind of thing claimed but
+#                         not as stated (inflated scope, seniority, or numbers)
+#   UNSUPPORTED         - nothing in the evidence backs it
+#
+# The set is deliberately weighted toward the boundary between SUPPORTED and
+# PARTIALLY_SUPPORTED: that's where a résumé actually lies (quiet inflation),
+# and where a lenient harness does real harm. Flat fabrications (t9, t10) are
+# the easy cases and are here as a floor, not as the point.
+
+# --- straightforwardly supported ------------------------------------------
+{"case_id": "t1", "claim": "Built an event-driven order pipeline on AWS Lambda handling 40M events per day.", "evidence": ["Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge, processing 40 million events per day."], "expected_status": "SUPPORTED", "category": "EXPERIENCE", "note": "Restatement of the evidence. Floor case: failing this means the harness is broken outright."}
+{"case_id": "t2", "claim": "Reduced p99 latency by roughly 85% on a high-throughput pipeline.", "evidence": ["Cut p99 latency from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer."], "expected_status": "SUPPORTED", "category": "ACHIEVEMENT", "note": "Requires arithmetic (900->120 is ~87%) rather than string matching. A harness doing lexical overlap fails this."}
+{"case_id": "t3", "claim": "Experienced with infrastructure as code.", "evidence": ["Wrote the Terraform modules, the blue/green deploy pipeline, and the rollback runbook."], "expected_status": "SUPPORTED", "category": "SKILL", "note": "Generalization the evidence entails (Terraform IS infrastructure as code). Tests that the harness isn't so literal it rejects valid abstraction."}
+
+# --- inflated: the failure mode this project exists to catch ---------------
+{"case_id": "t4", "claim": "Led a team of twenty engineers.", "evidence": ["Led a team of five engineers through two performance cycles."], "expected_status": "PARTIALLY_SUPPORTED", "category": "EXPERIENCE", "note": "Right kind of claim, inflated number. The single most common real resume lie."}
+{"case_id": "t5", "claim": "Architected the company's entire data platform.", "evidence": ["Introduced Apache Kafka as the backbone for cross-team data exchange, standing up 14 topics with schema-registry-enforced Avro contracts."], "expected_status": "PARTIALLY_SUPPORTED", "category": "EXPERIENCE", "note": "Real work, inflated scope ('entire platform' vs. one messaging backbone)."}
+{"case_id": "t6", "claim": "Owned the CI/CD platform and cut build times by 90%.", "evidence": ["Owned the CI/CD platform for 40 engineers: a shared caching layer that cut mean build time from 11 to 4 minutes."], "expected_status": "PARTIALLY_SUPPORTED", "category": "ACHIEVEMENT", "note": "Half true: ownership is supported, but 11->4 minutes is ~64%, not 90%. Tests that one false component invalidates a compound claim."}
+{"case_id": "t7", "claim": "Expert-level Kubernetes administrator.", "evidence": ["Taught myself enough of the container orchestrator to debug a scheduling bug: pods stuck pending because a node taint had no matching toleration."], "expected_status": "PARTIALLY_SUPPORTED", "category": "SKILL", "note": "Evidence shows working knowledge; 'expert-level administrator' overstates it. Seniority inflation."}
+{"case_id": "t8", "claim": "Certified AWS Solutions Architect.", "evidence": ["Completed an internal training course on cloud cost management. Certificate of attendance only."], "expected_status": "UNSUPPORTED", "category": "CERTIFICATION", "note": "A certificate exists, but not this one. Tests that surface similarity ('certificate') doesn't buy a pass — the dangerous direction of error."}
+
+# --- flat fabrications ------------------------------------------------------
+{"case_id": "t9", "claim": "Fluent in Mandarin and Japanese.", "evidence": ["Led a team of five engineers through two performance cycles.", "Owned the CI/CD platform for 40 engineers."], "expected_status": "UNSUPPORTED", "category": "SKILL", "note": "Nothing in evidence touches it."}
+{"case_id": "t10", "claim": "Holds a PhD in Machine Learning from Stanford.", "evidence": ["Built the company's first retrieval-augmented generation prototype: chunked 12,000 support tickets and embedded them with sentence-transformers."], "expected_status": "UNSUPPORTED", "category": "OTHER", "note": "Adjacent domain, unrelated credential. Categorized OTHER because ClaimCategory has no EDUCATION member — a degree claim is out of the enum's vocabulary, which is itself worth knowing. Tests that topical proximity isn't treated as support."}
+{"case_id": "t11", "claim": "Ran 23 incident postmortems over 18 months.", "evidence": ["Wrote the incident postmortem process, then ran 23 postmortems over 18 months."], "expected_status": "SUPPORTED", "category": "EXPERIENCE", "note": "Exact figures present. Paired with t4/t6 so the harness can't score well by distrusting every number."}
+{"case_id": "t12", "claim": "Mentored junior developers.", "evidence": ["Volunteered at a local coding bootcamp, teaching an introduction to Python for absolute beginners over six Saturday sessions."], "expected_status": "PARTIALLY_SUPPORTED", "category": "EXPERIENCE", "note": "Teaching beginners is adjacent to but not the same as mentoring junior developers. A genuinely debatable case, kept to expose whether the harness is systematically lenient or strict at the boundary."}

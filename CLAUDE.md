@@ -10,7 +10,7 @@ capstone: RAG + multi-agent resume generation on pydantic-ai + Qdrant) on
 **LangChain + LangGraph + ChromaDB**. Scope so far: the Python backend only
 (models → storage → retrieval → ingestion → agents → orchestration → API);
 the React frontend, `experiments/`, and the Week 4 notebook were not ported.
-See `architecture/high-level-design.md` and `architecture/decisions/` for what
+See `docs/architecture/high-level-design.md` and `docs/architecture/decisions/` for what
 changed and why (ADR-0001: Chroma replaces Qdrant; ADR-0003: LangGraph
 replaces the hand-rolled orchestrator).
 
@@ -54,6 +54,19 @@ mypy src                        # type-check (strict)
 CI (`.github/workflows/ci.yml`) runs exactly this sequence (lint → format
 check → mypy → pytest) on Python 3.11 and 3.13, installing from `uv.lock`.
 
+Offline evaluation (ADR-0011 — *not* part of `pytest`; this measures the
+system's quality, not its correctness):
+
+```bash
+python -m trustresume.evals --suite retrieval   # no credentials needed (~10s)
+TRUSTRESUME_LLM_PROVIDER=bedrock python -m trustresume.evals --suite all
+python -m trustresume.evals --suite all --save evals/baselines/latest.json
+```
+
+Run the retrieval suite before/after any change to chunking, the embedder, or
+retrieval fusion, and compare against `evals/baselines/latest.json`. See
+`evals/README.md` for how to read the numbers.
+
 Run the API:
 
 ```bash
@@ -71,13 +84,21 @@ Run the Streamlit frontend (needs the API already running; `ui` extra):
 
 ```bash
 TRUSTRESUME_API_URL=http://localhost:8000 streamlit run src/trustresume/ui/streamlit_app.py
+# TRUSTRESUME_USER_ID prefills the sidebar's user id (sent as X-User-Id);
+# blank means the demo user. Switching it switches to a separate workspace.
 ```
 
 Provider/model selection is resolved by `api/model_factory.py`'s `LLMConfig`:
 `config/llm.json` (committed defaults) → gitignored `config/llm.local.json`
 overlay → environment variables (highest precedence). Fields: `provider`
 (`bedrock` | `openai` | `google` | `test`), `model`, `api_key`, `aws_profile`,
-`aws_region`.
+`aws_region`, `temperature` (pinned, default `0`), and `roles` — per-role
+model/temperature overrides for `extraction` | `writer` | `verifier`
+(ADR-0013). LLM pricing for cost reporting is separate:
+`config/pricing.json` (ADR-0012). `TRUSTRESUME_OUTPUT_DIR` (default `output`,
+empty string disables) controls where each run's browsable copy is written.
+`TrustResumeApp(output_dir=...)` defaults to `None` — writing nothing — so the
+test suite never touches the filesystem; only `build_default_app` sets it.
 
 `scripts/manual_rag_test.py` is a real-Bedrock, real-fastembed, real-Chroma/
 SQLite end-to-end smoke test — ingests the two sample résumés in
@@ -93,17 +114,21 @@ a real generation, not CI.
 | Package | Responsibility |
 |---|---|
 | `models/` | Shared Pydantic schemas (`extra="forbid"`), no framework dependency. Everything else imports from here. |
-| `storage/` | SQLite repositories (users, documents, chunks, resumes, evaluations, candidate-profile cache) — ported unchanged from the original. |
-| `retrieval/` | `FastEmbedEmbeddings` + `ChromaVectorStore` (vector search) + `HybridRetriever` (vector + SQLite-FTS5 keyword search, fused by RRF — ADR-0010), always scoped by `user_id`. |
+| `storage/` | SQLite repositories (users, documents, **jobs**, **job↔document links**, chunks, resumes, evaluations, candidate-profile cache). The original's repositories are ported byte-for-byte; added on top of them are `documents.content_hash` (+ `UNIQUE(user_id, content_hash)`), the `chunks_fts` FTS5 table and its sync triggers, the `jobs`/`job_documents` tables, and the export/rejection/usage columns on `generated_resumes`. |
+| `retrieval/` | `FastEmbedEmbeddings` + `ChromaVectorStore` (vector search) + `HybridRetriever` (vector + SQLite-FTS5 keyword search, fused by RRF — ADR-0010) + `query.py` (job → query string). Every search is scoped by `user_id`, and optionally narrowed further by a `document_ids` allow-list (job scoping, below). |
 | `ingestion/` | Parse (`unstructured`, any format) → clean → dedup-check (content hash) → chunk (LangChain) → write both stores (`IngestionService`); rolls back SQLite chunk rows if the Chroma upsert fails; a duplicate (same user, same cleaned-text hash) short-circuits before any of that. |
 | `agents/` | Six pure input→output agents (five run every generation, `CandidateProfileAgent` is cached). LLM-backed ones wrap `chat_model.with_structured_output(Schema)`. |
-| `orchestration/` | `Orchestrator` (LangGraph `StateGraph`, see Architecture below), `CandidateProfileService` (cache-check wrapper), `build_feedback` (deterministic rewrite instructions). |
+| `orchestration/` | `Orchestrator` (LangGraph `StateGraph`, see Architecture below), `CandidateProfileService` (cache-check wrapper), `build_feedback` (deterministic rewrite instructions for the *next LLM pass*), `build_rejection_reason` (`rejection.py` — a human-readable "why this capped-out draft failed", persisted and displayed; deliberately not folded into `build_feedback`, different audience). |
 | `trust_verification/` | Prompt/formatting helpers + report assembly for the Trust Harness — pure functions, no LLM/framework dependency. |
-| `evaluation/` | ATS keyword-coverage scoring — pure functions. |
-| `api/` | `TrustResumeApp` facade (also exposes `add_document_bytes`/`search_evidence`), `model_factory.py` (provider-agnostic `LLMConfig`/`build_model`), `test_provider.py` (`AutoStructuredFakeChatModel`), FastAPI `server.py` (routes: `/api/documents`, `/api/documents/upload`, `/api/search`, `/api/generate`, `/api/ping`), wire DTOs in `schemas.py`. |
-| `ui/` | Streamlit frontend (`streamlit_app.py`) — a thin REST client (`api_client.py`'s `TrustResumeClient`) over the FastAPI backend; no imports from `trustresume.api`/`orchestration`/etc., so the dependency points one way (UI → HTTP → backend) and `streamlit` stays an optional (`ui`) extra. |
+| `evaluation/` | ATS keyword-coverage scoring — pure functions. **Product logic**: scores one résumé for the user at runtime. Not to be confused with `evals/`. |
+| `evals/` | **Engineering logic**: scores the *system* against labeled ground truth, offline (ADR-0011). Retrieval metrics (recall@k/MRR) + Trust Harness classification accuracy, datasets in repo-root `evals/datasets/*.jsonl`, run via `python -m trustresume.evals`. Everything but `cli.py` is dependency-injected and unit-tested offline. |
+| `telemetry.py` | `UsageTracker` (a LangChain callback capturing tokens/calls per model) + config-driven pricing → `RunUsage` (ADR-0012). A callback is the only place the raw `AIMessage` is still visible, since `with_structured_output` consumes it. |
+| `export/` | `render_markdown` / `render_pdf` — pure `ResumeDraft` → bytes/str renderers, no dependency beyond `models` (+ `fpdf2` for PDF). `artifacts.py`'s `write_run_artifacts` additionally mirrors each run to a browsable directory (`output/<user_id>/<ts>-<job-slug>-<id>/` with `resume.md`/`resume.pdf`/`evaluation.md`/`evaluation.json`/`job.md`) — a convenience view, never a source of truth: `_persist` swallows `OSError` so a full disk can't fail a generation. `render_pdf` uses fpdf2's built-in Helvetica core font, which only encodes **Latin-1** — and `_persist` renders inline, so an unencodable character used to raise and destroy a whole generation *after* every LLM call was paid for. A real Bedrock run hit this on an **em dash**; curly quotes and ellipses do it too, and models emit all three constantly. `_to_latin1` now transliterates typographic punctuation to ASCII and degrades anything else to `?` with a warning, never raising. Scripts with no ASCII equivalent (CJK, Cyrillic) still render as `?` — fixing that means bundling a Unicode TTF. `render_markdown` is lossless and remains the faithful export. |
+| `api/` | `TrustResumeApp` facade (documents · jobs CRUD · job-scoped upload/generate/list · resumes + exports · ad-hoc `search_evidence`), `model_factory.py` (provider-agnostic `LLMConfig`/`build_model`, temperature + role tiering), `test_provider.py` (`AutoStructuredFakeChatModel`), FastAPI `server.py` (same resource groups under `/api/...`, plus `/api/ping` and `/api/health`; every user-scoped route takes `CurrentUser`, resolved from `X-User-Id` — ADR-0014), wire DTOs in `schemas.py`. |
+| `ui/` | Streamlit frontend (`streamlit_app.py`, four tabs: Documents · Generate · Jobs · Search) — a thin REST client (`api_client.py`'s `TrustResumeClient`) over the FastAPI backend; no imports from `trustresume.api`/`orchestration`/etc., so the dependency points one way (UI → HTTP → backend) and `streamlit` stays an optional (`ui`) extra. |
 | `poc/` | Standalone LLM smoke test (`llm_smoke_test.py`), not part of the app; needs the `providers` extra for non-Bedrock; excluded from the coverage gate (see Testing model). |
 | `logging_config.py` | Stdlib `logging` + a JSON `Formatter`; `configure_logging()` is called once by `server.py`'s `build_served_app` (never by library code, so importing anything else stays side-effect-free). |
+| `prompting.py` | `wrap_untrusted(tag, text)` + `UNTRUSTED_INPUT_NOTICE` — the shared prompt-injection defense. Framework-free on purpose so both `agents/` and the deliberately zero-framework `trust_verification/` can use it (see Conventions). |
 
 ## Architecture
 
@@ -113,9 +138,16 @@ TrustHarnessAgent → ATSEvaluationAgent`, plus a sixth, cached
 `CandidateProfileAgent` behind `CandidateProfileService`. What's different:
 
 - **Orchestrator is a LangGraph `StateGraph`** (`orchestration/orchestrator.py`),
-  not a hand-rolled `while` loop — but `Orchestrator`'s constructor and
-  `run(*, user_id, job_posting, gate=None) -> WorkflowState` are unchanged, so
-  every caller is unaffected. The quality-loop iteration counting is subtle
+  not a hand-rolled `while` loop. `Orchestrator`'s constructor is unchanged
+  from the original, and so is the original `run(*, user_id, job_posting,
+  gate=None) -> WorkflowState` call — but `run` has since grown three
+  keyword-only params for the persisted-job path: `job` (a pre-extracted
+  `JobDescription`), `job_id`, and `document_ids`. **Exactly one of
+  `job_posting` or `job` must be passed** — both or neither raises
+  `ValueError`; `job_id`/`document_ids` are carried through for job-scoped
+  retrieval and persistence but change no control flow. `run` is `async`
+  (it `ainvoke`s the graph); `TrustResumeApp` wraps it in `asyncio.run`.
+  The quality-loop iteration counting is subtle
   and load-bearing: `max_iterations=3` (the default `QualityGate`) yields
   **4** total drafts (iterations 0-3), not 3 — the conditional edge checks
   `iteration >= max_iterations` *before* `prepare_rewrite` increments it.
@@ -157,6 +189,28 @@ TrustHarnessAgent → ATSEvaluationAgent`, plus a sixth, cached
   (`search(user_id, query, limit) -> EvidenceSet`), so `EvidenceRetrievalAgent`
   (now typed against a `Protocol`, not `ChromaVectorStore` specifically) and
   `TrustResumeApp.search_evidence` needed no call-site changes.
+- **A job is a persisted entity, and retrieval can be scoped to it** — added
+  post-port, no equivalent in the original. `POST /api/jobs` runs the Job
+  Description agent once and stores the extracted `JobDescription` as JSON
+  (`jobs`), so `generate_for_job` **skips the Job Description agent entirely**
+  and re-uses the stored extraction. Documents can be linked to a job
+  (`job_documents`, via `POST /api/jobs/{id}/documents`). The eligibility rule
+  is the easy thing to get backwards: `DocumentRepository.list_eligible_document_ids`
+  returns the **generic pool** (documents linked to *no* job at all) ∪
+  (documents linked to *this* job) — a document linked only to a *different*
+  job is **not** eligible here. `TrustResumeApp.generate_for_job` resolves that
+  id list and passes it into `Orchestrator.run(document_ids=...)`; the
+  orchestrator has no `DocumentRepository` of its own and never resolves
+  scoping itself. `document_ids=None` means "no extra narrowing" (the original,
+  job-agnostic behavior); `document_ids=[]` short-circuits to an empty result.
+- **Every persisted resume carries its own exports** — `TrustResumeApp._persist`
+  renders PDF + Markdown bytes unconditionally (both `generate` paths) and
+  stores them on `generated_resumes`, so `/api/resumes/{id}/pdf|markdown` is a
+  straight read, not a re-render. A draft that failed the gate additionally
+  gets `rejection_reason` (`build_rejection_reason`) and
+  `improvement_suggestions` (`build_feedback`); both `None` for a passing
+  draft. `_persist` sets `state.resume_id` so the caller can deep-link without
+  a second lookup.
 - **The `"test"` LLM provider is `AutoStructuredFakeChatModel`**
   (`api/test_provider.py`), not a bare `GenericFakeChatModel` — it
   synthesizes a minimal valid instance of whatever schema an agent binds via
@@ -218,6 +272,45 @@ TrustHarnessAgent → ATSEvaluationAgent`, plus a sixth, cached
   the Evidence Retrieval agent's hybrid search standalone, for a caller (the
   Streamlit UI's Search tab) to inspect retrieval quality directly instead of
   only seeing its effect buried inside a full `/api/generate` run.
+- **Every run is measured: tokens, cost, latency** (ADR-0012,
+  `telemetry.py`). The orchestrator attaches one `UsageTracker` per run as a
+  LangGraph callback, so it sees every agent's LLM call without any agent
+  knowing it exists — necessary because `with_structured_output` consumes the
+  raw `AIMessage`, so `usage_metadata` never reaches the call site. Per-node
+  latency comes from `_timed()`, applied once at graph-construction time (a
+  node added later is measured automatically); timings are a *list*, appended
+  per execution, so "was the 3rd rewrite slower than the 1st" stays
+  answerable. **An unpriced model reports `cost_usd=None`, never a partial
+  total** — prices live in `config/pricing.json`, and a sum that quietly omits
+  the most expensive model is worse than an honest "unknown". Both offline
+  fakes emit `usage_metadata` + a `model_name` on purpose: without that, every
+  token assertion in the suite would be vacuously zero.
+- **Temperature is pinned (default 0) and models tier by role** (ADR-0013).
+  Nothing used to pass `temperature`, so provider defaults applied — an
+  unpinned sampling parameter underneath a *deterministic scoring* claim.
+  Roles are `extraction` (Job Description + Candidate Profile) / `writer`
+  (Resume Writer) / `verifier` (Trust Harness), defined by the job rather than
+  the agent name. Tiering is opt-in: with no `roles` configured all three
+  resolve to the same model, so existing callers and tests are unaffected.
+- **The caller is resolved per request from `X-User-Id`** (ADR-0014,
+  `server.py`'s module-level `resolve_user` + `CurrentUser`). Identity, not
+  authentication — the point is that ADR-0001's isolation became *testable*:
+  every route used to hardcode `DEMO_USER_ID`, so no test could show two users
+  are actually isolated. **`resolve_user` must stay at module scope** and reach
+  the facade via `request.app.state`: with `from __future__ import
+  annotations`, a `CurrentUser` alias defined inside `create_app` is
+  unresolvable from module globals and FastAPI silently degrades it to an
+  unknown query parameter — *every route then 422s*. Caught only by running
+  the app, not by mypy or ruff.
+- **`evals/` measures the system; `evaluation/` measures a résumé** (ADR-0011).
+  The names are one letter apart and the distinction is the whole point: the
+  runtime quality gate and ATS score are product output, computed *from* what
+  the agents reported, so a Trust Harness that rubber-stamps everything scores
+  perfectly and fails invisibly. `evals/` scores both halves against labeled
+  ground truth offline. Macro-F1 sits next to accuracy because the labels skew
+  SUPPORTED (a harness that never says UNSUPPORTED looks ~80% accurate while
+  failing at its only job), and too-lenient verdicts are counted separately
+  because those are the errors that ship a fabrication.
 - **CI/Docker are new, not part of the original port**: `.github/workflows/ci.yml`
   runs ruff/mypy/pytest on Python 3.11 and 3.13 from the locked `uv.lock`;
   `Dockerfile` is a multi-stage build with two runtime targets (`runtime` = the
@@ -225,10 +318,17 @@ TrustHarnessAgent → ATSEvaluationAgent`, plus a sixth, cached
   `docker-compose.yml` wires both together (`TRUSTRESUME_LLM_PROVIDER=test` by
   default, so `docker compose up` needs no credentials).
 
-Read `architecture/high-level-design.md` and the ADRs under
-`architecture/decisions/` before making non-trivial changes;
+Read `docs/architecture/high-level-design.md` and the ADRs under
+`docs/architecture/decisions/` before making non-trivial changes;
 `docs/code-walkthrough.md` is a narrative learning guide to the whole
 codebase (data flow, why each design decision, suggested reading order).
+
+**ADR numbering is split across two repos** — `docs/architecture/decisions/` holds
+ADR-0001, 0003, 0010, and 0011–0014 (this port's own new/changed decisions).
+Docstrings here also cite ADR-0002 and ADR-0004…0009; those are the
+**original** repo's ADRs, which carry over unchanged and were deliberately not
+restated (see `docs/architecture/README.md`). Don't go looking for a missing file,
+and don't renumber this repo's ADRs to close the gaps.
 
 ## Testing model
 
@@ -242,8 +342,9 @@ NFR-5:
 | SQLite FTS5 (keyword search) | No fake needed — `connect(":memory:")` has FTS5 built in, so `ChunkRepository.search_keywords`/`HybridRetriever` tests run against the real index. |
 | Document parsing (`.docx`/`.pdf`) | `unstructured.partition.auto.partition` is mocked for the element-joining unit test (`test_parseBytes_richDocument_joinsPartitionedElements`); real parsing of real sample files is exercised by two `live`-marked tests, one per format. |
 | Embedding model | `tests/fakes.py`'s `FakeEmbeddings`; the real `FastEmbedEmbeddings`'s lazy-load contract is unit-tested by mocking `fastembed.TextEmbedding`, and its actual output is exercised by a `live`-marked test (real model, may download on first run) |
-| LLM (unit tests) | `tests/fakes.py`'s `scripted_tool_call(name, args)` — builds a `FakeToolCallingChatModel` that returns one scripted tool call; `name` must match the target Pydantic model's class name |
-| LLM (`provider="test"`, integration/live tests) | `api/test_provider.py`'s `AutoStructuredFakeChatModel` |
+| LLM (unit tests) | `tests/fakes.py`'s `scripted_tool_call(name, args)` — builds a `FakeToolCallingChatModel` that returns one scripted tool call; `name` must match the target Pydantic model's class name. Messages come from `tool_call_message()`, which attaches `usage_metadata` + a `model_name` — omit those and every token/cost assertion silently passes on zeros (ADR-0012). |
+| LLM (`provider="test"`, integration/live tests) | `api/test_provider.py`'s `AutoStructuredFakeChatModel` — also emits synthetic-but-plausible token counts (~4 chars/token, scaled to the real prompt). Its model id is deliberately absent from `config/pricing.json`, so offline runs report real tokens with an honest `cost_usd=None`. |
+| Eval harness (`evals/`) | No LLM/embedder needed — the evaluators take injected `SupportsSearch`/`SupportsTrustRun` protocols, so `tests/unit/test_evals.py` drives them with scripted fakes. The *committed datasets* are validated by those tests too (unknown `doc_id`s, duplicate ids, full label coverage): a typo'd label silently depresses recall forever. Only `src/trustresume/evals/cli.py` builds real dependencies, and it's `omit`-ted from coverage like `poc/`. |
 | Streamlit frontend | `streamlit.testing.v1.AppTest` (`tests/unit/test_streamlit_app.py`) drives the real script (widgets, clicks, form submission) with `requests.Session` mocked at `trustresume.ui.api_client`'s import site — no browser, no real HTTP. `st.cache_resource.clear()` must run between tests (autouse fixture) or a later test reuses an earlier test's mocked client. A prior manual Playwright check caught a real bug this way: `streamlit run` executes the file with no package context, so a relative import (`from .api_client import ...`) crashed — fixed by using an absolute import. |
 
 `tests/unit/` mirrors `src/trustresume/`'s package boundaries one-to-one;
@@ -267,7 +368,9 @@ database file created before that change; the first write that touches the
 new column fails at runtime ("no column named ...") rather than at startup.
 **Delete `trustresume.db`/`chroma_data` locally, or run `docker compose down
 -v` to drop the `trustresume-data` volume, before running code with schema
-changes against data from an earlier version.** This is an accepted,
+changes against data from an earlier version.** The most recent such change is
+ADR-0012's usage columns on `generated_resumes` (`input_tokens`,
+`output_tokens`, `llm_calls`, `cost_usd`, `duration_ms`). This is an accepted,
 deliberate gap for a personal-project scale (see `docker-compose.yml`'s
 comment on the same volume) — add real migrations only if this ever needs
 to preserve data across a schema change in practice.
@@ -275,6 +378,14 @@ to preserve data across a schema change in practice.
 ## Conventions
 
 - No commits unless explicitly asked.
+- **Never interpolate externally-sourced text into a prompt bare.** A job
+  posting, an uploaded document, retrieved evidence — all of it goes through
+  `prompting.py`'s `wrap_untrusted(tag, text)`, paired with
+  `UNTRUSTED_INPUT_NOTICE` in the system prompt, so an injection attempt
+  embedded in it reads as data rather than instructions. `prompting.py`
+  imports nothing framework-specific on purpose: `trust_verification/` is
+  deliberately dependency-free (ADR-0004, in the *original* repo's numbering)
+  and must not pull in `langchain_core` just to reuse this.
 - Each top-level package under `src/trustresume/` mirrors the original's
   module boundaries; when porting or extending a module, check the original
   repo (`/Users/joe.xu/repo/trustresume`) for the reference behavior before

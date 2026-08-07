@@ -32,7 +32,9 @@ from __future__ import annotations
 
 import logging
 import operator
-from typing import Annotated, Any, Literal, TypedDict
+import time
+from collections.abc import Coroutine
+from typing import Annotated, Any, Literal, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -48,11 +50,13 @@ from trustresume.models import (
     CandidateProfile,
     EvidenceSet,
     JobDescription,
+    NodeTiming,
     QualityGate,
     ResumeDraft,
     TrustReport,
     WorkflowState,
 )
+from trustresume.telemetry import track_usage
 
 from .candidate_profile_service import CandidateProfileService
 from .feedback import build_feedback
@@ -77,8 +81,48 @@ class _GraphState(TypedDict):
     drafts: Annotated[list[ResumeDraft], operator.add]
     trust_reports: Annotated[list[TrustReport], operator.add]
     ats_reports: Annotated[list[ATSReport], operator.add]
+    # Append-only like the three above: nodes inside the quality loop execute
+    # once per iteration, and "how long did the 3rd rewrite take" is exactly
+    # the question a per-node total would erase.
+    timings: Annotated[list[NodeTiming], operator.add]
     iteration: int
     feedback: str | None
+
+
+class _Node(Protocol):
+    """A graph node: async, takes the state, returns a state update.
+
+    A ``Protocol`` rather than a ``Callable[...]`` alias because LangGraph's
+    own node protocol declares its parameter by name (``state``), so a
+    positional-only ``Callable`` isn't assignable to it — the wrapper below
+    has to keep that parameter name to type-check against ``add_node``.
+    """
+
+    def __call__(self, state: _GraphState) -> Coroutine[Any, Any, dict[str, object]]: ...
+
+
+def _timed(name: str, node: _Node) -> _Node:
+    """Wrap a node so its wall-clock duration lands in ``state["timings"]``.
+
+    Applied once at graph-construction time rather than inside each node body:
+    seven nodes would otherwise each need the same start/stop boilerplate, and
+    a node added later would silently go unmeasured. The wrapper only *adds* a
+    key to whatever the node returned, so node logic is untouched.
+
+    Timing lives in graph state (not in the ``UsageTracker`` callback) because
+    only the graph knows where node boundaries are — callbacks see LLM calls,
+    which is a different, finer-grained thing. A node that raises isn't timed:
+    the run is failing anyway, and reporting a partial duration as if it were
+    a completed step would be misleading.
+    """
+
+    async def run_timed(state: _GraphState) -> dict[str, object]:
+        started = time.perf_counter()
+        result = await node(state)
+        duration_ms = (time.perf_counter() - started) * 1000
+        return {**result, "timings": [NodeTiming(node=name, duration_ms=duration_ms)]}
+
+    return run_timed
 
 
 class Orchestrator:
@@ -104,13 +148,15 @@ class Orchestrator:
 
     def _build_graph(self) -> Any:  # CompiledStateGraph — a bare generic under mypy
         builder = StateGraph(_GraphState)
-        builder.add_node("analyze_job", self._analyze_job)
-        builder.add_node("load_candidate_profile", self._load_candidate_profile)
-        builder.add_node("retrieve_evidence", self._retrieve_evidence)
-        builder.add_node("write_resume", self._write_resume)
-        builder.add_node("score_trust", self._score_trust)
-        builder.add_node("score_ats", self._score_ats)
-        builder.add_node("prepare_rewrite", self._prepare_rewrite)
+        builder.add_node("analyze_job", _timed("analyze_job", self._analyze_job))
+        builder.add_node(
+            "load_candidate_profile", _timed("load_candidate_profile", self._load_candidate_profile)
+        )
+        builder.add_node("retrieve_evidence", _timed("retrieve_evidence", self._retrieve_evidence))
+        builder.add_node("write_resume", _timed("write_resume", self._write_resume))
+        builder.add_node("score_trust", _timed("score_trust", self._score_trust))
+        builder.add_node("score_ats", _timed("score_ats", self._score_ats))
+        builder.add_node("prepare_rewrite", _timed("prepare_rewrite", self._prepare_rewrite))
 
         builder.add_edge(START, "analyze_job")
         builder.add_edge("analyze_job", "load_candidate_profile")
@@ -267,6 +313,7 @@ class Orchestrator:
             "drafts": [],
             "trust_reports": [],
             "ats_reports": [],
+            "timings": [],
             "iteration": 0,
             "feedback": None,
         }
@@ -275,7 +322,15 @@ class Orchestrator:
         # safety margin — so a caller-supplied gate with a higher cap than the
         # default doesn't hit LangGraph's default limit (25) prematurely.
         recursion_limit = 6 + 4 * resolved_gate.max_iterations + 10
-        result = await self._graph.ainvoke(initial, config={"recursion_limit": recursion_limit})
+        # One tracker per run, handed to LangGraph as a callback: it propagates
+        # down to every agent's model call, so token accounting needs no
+        # cooperation from (and no coupling to) the agents themselves.
+        with track_usage() as tracker:
+            result = await self._graph.ainvoke(
+                initial,
+                config={"recursion_limit": recursion_limit, "callbacks": [tracker]},
+            )
+        usage = tracker.finalize(timings=result["timings"])
 
         final_trust = result["trust_reports"][-1].score if result["trust_reports"] else None
         final_ats = result["ats_reports"][-1].score if result["ats_reports"] else None
@@ -286,6 +341,7 @@ class Orchestrator:
                 "iterations": result["iteration"],
                 "final_trust_score": final_trust,
                 "final_ats_score": final_ats,
+                **usage.log_fields(),
             },
         )
         return WorkflowState(
@@ -299,4 +355,5 @@ class Orchestrator:
             trust_reports=result["trust_reports"],
             ats_reports=result["ats_reports"],
             iteration=result["iteration"],
+            usage=usage,
         )

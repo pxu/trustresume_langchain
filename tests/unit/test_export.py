@@ -7,7 +7,12 @@ directly rather than only incidentally through ``_persist``.
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from trustresume.export import render_markdown, render_pdf
+from trustresume.export.pdf import _to_latin1
 from trustresume.models import ResumeDraft, ResumeSection
 
 
@@ -104,3 +109,76 @@ def test_renderPdf_manyBulletsOverflowingOnePage_stillRendersValidPdf() -> None:
 
     assert pdf_bytes.startswith(b"%PDF-")
     assert len(pdf_bytes) > 1000
+
+
+# --- PDF text encoding -----------------------------------------------------
+#
+# The core Helvetica font only encodes Latin-1, and render_pdf runs inside
+# _persist — so an unencodable character used to raise and destroy an entire
+# generation *after* every LLM call had been paid for. A real Bedrock run hit
+# this on an em dash, which models emit constantly.
+
+
+@pytest.mark.parametrize(
+    ("original", "expected_in_pdf_text"),
+    [
+        ("Senior Engineer — Platform", "Senior Engineer -- Platform"),
+        ("Built the “order pipeline”", 'Built the "order pipeline"'),
+        ("Python, Go, Terraform…", "Python, Go, Terraform..."),
+        ("Led a team – of five", "Led a team - of five"),
+        ("Owner’s manual", "Owner's manual"),
+    ],
+)
+def test_toLatin1_typographicPunctuation_transliteratedNotDropped(
+    original: str, expected_in_pdf_text: str
+) -> None:
+    """An em dash silently vanishing changes how a sentence reads."""
+    assert _to_latin1(original) == expected_in_pdf_text
+
+
+def test_renderPdf_llmTypographicPunctuation_rendersInsteadOfRaising() -> None:
+    draft = ResumeDraft(
+        summary="Backend engineer — 10 years’ experience…",
+        sections=[
+            ResumeSection(
+                heading="Experience — Platform",
+                bullets=["Owned the “order pipeline”", "• Led a team of five"],
+            )
+        ],
+    )
+
+    pdf_bytes = render_pdf(draft)
+
+    assert pdf_bytes.startswith(b"%PDF-")
+
+
+def test_renderPdf_charactersWithNoAsciiEquivalent_degradeRatherThanRaise() -> None:
+    """A CJK name can't be transliterated, but it must not lose the whole run."""
+    draft = ResumeDraft(summary="徐鹏飞 — 工程师 🚀", sections=[])
+
+    assert render_pdf(draft).startswith(b"%PDF-")
+    assert _to_latin1("徐鹏飞") == "???"
+
+
+def test_renderPdf_lossyReplacement_isLogged(caplog: pytest.LogCaptureFixture) -> None:
+    """Silent lossy output is how someone mails a résumé with '?' for a name."""
+    with caplog.at_level(logging.WARNING, logger="trustresume.export.pdf"):
+        render_pdf(ResumeDraft(summary="徐鹏飞", sections=[]))
+
+    assert any("unsupported by the core font" in r.message for r in caplog.records)
+
+
+def test_renderPdf_plainAsciiDraft_logsNothing(caplog: pytest.LogCaptureFixture) -> None:
+    """The common case must stay quiet, or the warning becomes noise."""
+    with caplog.at_level(logging.WARNING, logger="trustresume.export.pdf"):
+        render_pdf(ResumeDraft(summary="Plain ASCII summary.", sections=[]))
+
+    assert caplog.records == []
+
+
+def test_renderMarkdown_keepsOriginalCharacters_unlikePdf() -> None:
+    """Markdown is the lossless export; the PDF is best-effort under a core font."""
+    draft = ResumeDraft(summary="Engineer — 徐鹏飞", sections=[])
+
+    assert "—" in render_markdown(draft)
+    assert "徐鹏飞" in render_markdown(draft)

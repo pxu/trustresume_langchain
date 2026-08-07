@@ -1,4 +1,4 @@
-"""Generate the architecture diagrams embedded in detailed_design.pdf.
+"""Generate the architecture diagrams embedded in docs/detailed-design.pdf.
 
 Standalone, throwaway doc-tooling (like scripts/manual_rag_test.py) — not
 part of the app, not covered by the test suite. Run:

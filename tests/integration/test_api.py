@@ -220,6 +220,35 @@ def test_generate_returnsScoresAndDraft(client: TestClient) -> None:
     assert isinstance(body["hallucinations"], list)
 
 
+def test_generate_reportsTokenUsageAndDuration(client: TestClient) -> None:
+    """Every run must account for what it consumed, offline provider included."""
+    resp = client.post("/api/generate", json={"job_posting": "Senior Python Engineer"})
+    assert resp.status_code == 200
+
+    usage = resp.json()["usage"]
+    # The offline run always hits the rewrite cap (Trust is always 0 under the
+    # fake provider), so it makes the full 4 drafts: 1 job + 1 profile + 4
+    # writer + 4 trust calls. Asserting ">= drafts" rather than an exact count
+    # keeps this honest if the loop's shape changes.
+    assert usage["llm_calls"] >= 4
+    assert usage["input_tokens"] > 0
+    assert usage["output_tokens"] > 0
+    assert usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
+    assert usage["duration_ms"] > 0
+    # The fake model has no entry in config/pricing.json, so cost is honestly
+    # unknown rather than a fabricated 0.0.
+    assert usage["cost_usd"] is None
+
+
+def test_getResume_exposesPersistedUsage(client: TestClient) -> None:
+    generated = client.post("/api/generate", json={"job_posting": "Senior Python Engineer"}).json()
+
+    detail = client.get(f"/api/resumes/{generated['resume_id']}").json()
+
+    assert detail["usage"]["llm_calls"] == generated["usage"]["llm_calls"]
+    assert detail["usage"]["total_tokens"] == generated["usage"]["total_tokens"]
+
+
 def test_generate_requiresJobPosting(client: TestClient) -> None:
     resp = client.post("/api/generate", json={"job_posting": ""})
     assert resp.status_code == 422
@@ -539,3 +568,72 @@ def test_generateForJob_noScoredDraftProduced_returns500(
     resp = test_client.post(f"/api/jobs/{job_id}/generate")
     assert resp.status_code == 500
     assert "no scored draft" in resp.json()["detail"]
+
+
+# --- per-request identity (ADR-0001 made demonstrable) ---------------------
+
+
+def test_userIdHeader_twoUsers_cannotSeeEachOthersDocuments(client: TestClient) -> None:
+    """The isolation boundary the whole storage layer is built around, proven
+    end to end over HTTP — impossible to test while every request was hardcoded
+    to one demo user.
+    """
+    client.post(
+        "/api/documents",
+        json={"filename": "ada.txt", "text": "Ada built Python services on AWS."},
+        headers={"X-User-Id": "ada"},
+    )
+    client.post(
+        "/api/documents",
+        json={"filename": "bob.txt", "text": "Bob wrote Rust firmware."},
+        headers={"X-User-Id": "bob"},
+    )
+
+    ada_docs = client.get("/api/documents", headers={"X-User-Id": "ada"}).json()
+    bob_docs = client.get("/api/documents", headers={"X-User-Id": "bob"}).json()
+    demo_docs = client.get("/api/documents").json()
+
+    assert [d["filename"] for d in ada_docs] == ["ada.txt"]
+    assert [d["filename"] for d in bob_docs] == ["bob.txt"]
+    assert demo_docs == []  # no header: the demo user, who owns neither
+
+
+def test_userIdHeader_search_doesNotLeakAnotherUsersEvidence(client: TestClient) -> None:
+    client.post(
+        "/api/documents",
+        json={"filename": "ada.txt", "text": "Ada built Python services on AWS."},
+        headers={"X-User-Id": "ada"},
+    )
+
+    hits = client.post(
+        "/api/search", json={"query": "Python AWS"}, headers={"X-User-Id": "bob"}
+    ).json()
+
+    assert hits["chunks"] == []
+
+
+def test_userIdHeader_othersResume_is404NotReadable() -> None:
+    client = _client_with_scripted_calls(_FULL_GENERATION)
+    generated = client.post(
+        "/api/generate",
+        json={"job_posting": "Senior Python Engineer"},
+        headers={"X-User-Id": "ada"},
+    ).json()
+
+    resp = client.get(f"/api/resumes/{generated['resume_id']}", headers={"X-User-Id": "bob"})
+
+    assert resp.status_code == 404
+
+
+def test_userIdHeader_missingOrBlank_fallsBackToDemoUser(client: TestClient) -> None:
+    client.post("/api/documents", json={"filename": "d.txt", "text": "Demo user document."})
+
+    assert len(client.get("/api/documents", headers={"X-User-Id": "  "}).json()) == 1
+
+
+def test_userIdHeader_malformed_rejectedWith400(client: TestClient) -> None:
+    """A hostile header shouldn't become a database key."""
+    resp = client.get("/api/documents", headers={"X-User-Id": "../../etc/passwd"})
+
+    assert resp.status_code == 400
+    assert "X-User-Id" in resp.json()["detail"]

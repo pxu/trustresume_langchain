@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from trustresume.ui.api_client import TrustResumeClient
+from trustresume.ui.api_client import USER_ID_HEADER, TrustResumeClient
 
 
 def _mock_response(json_body: object, *, ok: bool = True) -> MagicMock:
@@ -227,3 +227,25 @@ def test_downloadResumeMarkdown_returnsText(session_cls: MagicMock) -> None:
     session.get.assert_called_once_with(
         "http://api:8000/api/resumes/r1/markdown", timeout=client.timeout
     )
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_userId_setOnceOnTheSession_notPerCall(session_cls: MagicMock) -> None:
+    """Every route is user-scoped, so the header must never be per-method."""
+    session = session_cls.return_value
+    session.headers = {}
+
+    TrustResumeClient("http://api:8000", user_id="ada")
+
+    assert session.headers[USER_ID_HEADER] == "ada"
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_userId_omitted_sendsNoHeader(session_cls: MagicMock) -> None:
+    """No id means 'the demo user', which the backend infers from its absence."""
+    session = session_cls.return_value
+    session.headers = {}
+
+    TrustResumeClient("http://api:8000")
+
+    assert USER_ID_HEADER not in session.headers

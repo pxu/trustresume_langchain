@@ -1,8 +1,12 @@
 {
   "$comment": "LLM provider config for the TrustResume agents. Switch providers here (or override any field with env vars). provider: bedrock | openai | google | test. Bedrock (AWS Claude) is the default and uses AWS credentials, not an api_key. model=null uses the provider default. api_key is OPTIONAL and only for openai/google — prefer leaving it null and setting OPENAI_API_KEY / GOOGLE_API_KEY in the environment; do NOT commit a real key (see config/llm.local.json).",
+  "$comment_temperature": "temperature is pinned (not left to the provider's default) because three of the four LLM steps are structured extraction/classification, where sampling variance turns into an unreproducible Trust score. Override with TRUSTRESUME_LLM_TEMPERATURE.",
+  "$comment_roles": "roles tiers models by job: extraction (Job Description + Candidate Profile agents), writer (Resume Writer), verifier (Trust Harness). Each entry may set model, temperature, or both; anything omitted inherits the base values above. Env overrides: TRUSTRESUME_LLM_<ROLE>_MODEL / _TEMPERATURE. Example — cheap extraction, warmer prose, strong verifier: {\"extraction\": {\"model\": \"gpt-4o-mini\"}, \"writer\": {\"temperature\": 0.6}}.",
   "provider": "bedrock",
   "model": null,
   "api_key": null,
   "aws_profile": "twdc-bedrock-central",
-  "aws_region": "us-west-2"
+  "aws_region": "us-west-2",
+  "temperature": 0,
+  "roles": {}
 }

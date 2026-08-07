@@ -135,6 +135,36 @@ def test_orchestrator_passesOnFirstTry_noRewrites() -> None:
     assert resume.calls == [None]  # writer called once, no feedback
 
 
+def test_orchestrator_recordsPerNodeTimingsForEveryExecution() -> None:
+    """Loop nodes must be timed per iteration, not collapsed into one entry."""
+    orch, _ = _make(trust_scores=[80.0, 95.0], ats_scores=[90.0, 90.0])
+
+    state = run(orch.run(user_id="u1", job_posting="Python role"))
+
+    assert state.usage is not None
+    nodes = [t.node for t in state.usage.timings]
+    # One-time nodes run once; the quality loop's nodes run once per draft.
+    assert nodes.count("analyze_job") == 1
+    assert nodes.count("retrieve_evidence") == 1
+    assert nodes.count("write_resume") == 2
+    assert nodes.count("score_trust") == 2
+    assert set(state.usage.duration_by_node()) == set(nodes)
+    assert state.usage.total_duration_ms > 0
+
+
+def test_orchestrator_noLlmUsageReported_stillReturnsUsageNotNone() -> None:
+    """Fake agents make no real LLM calls; usage must be empty, not missing."""
+    orch, _ = _make(trust_scores=[95.0], ats_scores=[90.0])
+
+    state = run(orch.run(user_id="u1", job_posting="Python role"))
+
+    assert state.usage is not None
+    assert state.usage.llm_calls == 0
+    # Unknown, not $0: an unobserved call and a free one are indistinguishable
+    # from here, and reporting "free" is the more dangerous of the two.
+    assert state.usage.cost_usd is None
+
+
 def test_orchestrator_failsThenPasses_oneRewrite() -> None:
     # iteration 0 fails on trust, iteration 1 passes both.
     orch, resume = _make(trust_scores=[80.0, 95.0], ats_scores=[90.0, 90.0])

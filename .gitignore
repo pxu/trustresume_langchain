@@ -17,11 +17,6 @@ data/processed/*
 !data/processed/.gitkeep
 data/embeddings/*
 !data/embeddings/.gitkeep
-# Real personal résumés used for manual RAG testing (scripts/manual_rag_test.py)
-# — data/sample_documents/ is otherwise synthetic-only (see data/README.md);
-# these two are real PII and must never reach GitHub.
-data/sample_documents/AI_Engineer_Resume.docx
-data/sample_documents/Senior_SDE_Resume.pdf
 chroma_data/
 *.db
 *.sqlite3
@@ -42,3 +37,18 @@ coverage.xml
 .DS_Store
 .vscode/
 .idea/
+
+# --- Generated résumés + evaluations ---------------------------------------
+# Real runs write here (TRUSTRESUME_OUTPUT_DIR, default "output/"), keyed by
+# user id — that is real candidate data and must never be committed.
+#
+# output/samples/ is the deliberate exception: it holds the curated, fully
+# synthetic demo artifacts produced by scripts/generate_samples.py, which are
+# committed so the pass/fail examples are readable on GitHub without cloning.
+# The evidence and job postings behind them are invented (see that script).
+#
+# Structured as "ignore everything under output/, then un-ignore samples/"
+# rather than as a bare `output/` rule, because git cannot re-include a path
+# whose parent directory is itself excluded.
+output/*
+!output/samples/

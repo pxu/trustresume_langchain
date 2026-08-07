@@ -11,7 +11,7 @@ This is deterministic, not an LLM reasoning step itself (the LLM call it
 sometimes makes lives entirely inside the wrapped agent), so like
 ``IngestionService`` it's named and treated as a **service**, not an agent —
 see "Ingestion is a separate write path" in
-``architecture/high-level-design.md`` for the Service-vs-Agent distinction
+``docs/architecture/high-level-design.md`` for the Service-vs-Agent distinction
 this follows.
 
 Milestone M5 (orchestration).
@@ -55,7 +55,7 @@ class CandidateProfileService:
 
         Reuses ``ChunkRepository`` rather than re-reading raw uploads — by the
         time a generation runs, ingestion has already parsed/cleaned/chunked
-        everything (see ``architecture/high-level-design.md``), so this is the
+        everything (see ``docs/architecture/high-level-design.md``), so this is the
         only text source that's actually available and guaranteed current.
         Adjacent chunks may share a little overlap text (``chunker.py``'s
         overlap window); harmless for an LLM extraction, not worth

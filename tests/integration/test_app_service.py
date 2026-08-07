@@ -17,12 +17,14 @@ Harness — ATS Evaluation is deterministic, no LLM call).
 
 from __future__ import annotations
 
+import uuid
+from pathlib import Path
+
 import chromadb
 import pytest
 from langchain_core.messages import AIMessage
-from langchain_core.messages.tool import ToolCall
 
-from tests.fakes import FakeEmbeddings, FakeToolCallingChatModel
+from tests.fakes import FakeEmbeddings, FakeToolCallingChatModel, tool_call_message
 from trustresume.api.app_service import TrustResumeApp, build_default_app
 from trustresume.models import DocumentType
 from trustresume.storage import connect
@@ -30,60 +32,40 @@ from trustresume.storage import connect
 # Scripted so the pipeline passes the default gate on the first attempt:
 # job.keywords + the draft's content overlap fully (ATS = 100), and the one
 # claim is SUPPORTED (Trust = 100).
-_JOB_DESCRIPTION_CALL = AIMessage(
-    content="",
-    tool_calls=[
-        ToolCall(
-            name="JobDescription",
-            args={
-                "raw_text": "ignored — overwritten by the agent",
-                "title": "Senior Python Engineer",
-                "keywords": ["python", "aws"],
-            },
-            id="call_jd",
-        )
-    ],
+_JOB_DESCRIPTION_CALL = tool_call_message(
+    "JobDescription",
+    {
+        "raw_text": "ignored — overwritten by the agent",
+        "title": "Senior Python Engineer",
+        "keywords": ["python", "aws"],
+    },
+    id="call_jd",
 )
-_CANDIDATE_PROFILE_CALL = AIMessage(
-    content="",
-    tool_calls=[
-        ToolCall(
-            name="CandidateProfile",
-            args={"name": "Ada", "skills": ["python", "aws"]},
-            id="call_cp",
-        )
-    ],
+_CANDIDATE_PROFILE_CALL = tool_call_message(
+    "CandidateProfile",
+    {"name": "Ada", "skills": ["python", "aws"]},
+    id="call_cp",
 )
-_RESUME_DRAFT_CALL = AIMessage(
-    content="",
-    tool_calls=[
-        ToolCall(
-            name="_DraftExtraction",
-            args={
-                "summary": "Experienced python and aws engineer.",
-                "sections": [{"heading": "Skills", "bullets": ["python", "aws"]}],
-            },
-            id="call_resume",
-        )
-    ],
+_RESUME_DRAFT_CALL = tool_call_message(
+    "_DraftExtraction",
+    {
+        "summary": "Experienced python and aws engineer.",
+        "sections": [{"heading": "Skills", "bullets": ["python", "aws"]}],
+    },
+    id="call_resume",
 )
-_TRUST_CALL = AIMessage(
-    content="",
-    tool_calls=[
-        ToolCall(
-            name="_ClaimExtraction",
-            args={
-                "claims": [
-                    {
-                        "text": "Built python services on AWS",
-                        "category": "SKILL",
-                        "status": "SUPPORTED",
-                    }
-                ]
-            },
-            id="call_trust",
-        )
-    ],
+_TRUST_CALL = tool_call_message(
+    "_ClaimExtraction",
+    {
+        "claims": [
+            {
+                "text": "Built python services on AWS",
+                "category": "SKILL",
+                "status": "SUPPORTED",
+            }
+        ]
+    },
+    id="call_trust",
 )
 
 # One full `generate()` call with a fresh (not-yet-cached) candidate profile.
@@ -512,3 +494,68 @@ def test_persist_rendersExportsUnconditionally_andRejectionDataOnlyWhenFailed() 
     assert bytes(failing_row["pdf_bytes"])[:5] == b"%PDF-"
     assert failing_row["rejection_reason"] is not None
     assert failing_row["improvement_suggestions"] is not None
+
+
+def test_generate_withOutputDir_writesBrowsableRunDirectory(tmp_path: Path) -> None:
+    """The whole point of the feature: a folder you can open after a run."""
+    app_facade = TrustResumeApp(
+        connection=connect(":memory:"),
+        chroma_client=chromadb.EphemeralClient(),
+        embedder=FakeEmbeddings(),
+        model=FakeToolCallingChatModel(messages=iter(_FULL_GENERATION)),
+        chroma_collection_name=f"test-{uuid.uuid4().hex}",
+        output_dir=tmp_path,
+    )
+    app_facade.ensure_user("Ada", user_id="u1")
+    app_facade.add_document(user_id="u1", filename="r.txt", text="Built python services on AWS.")
+
+    state = app_facade.generate(user_id="u1", job_posting="Senior Python Engineer")
+
+    user_dirs = list(tmp_path.iterdir())
+    assert len(user_dirs) == 1 and user_dirs[0].name.startswith("u1-")
+    run_dirs = list(user_dirs[0].iterdir())
+    assert len(run_dirs) == 1
+    assert sorted(p.name for p in run_dirs[0].iterdir()) == [
+        "evaluation.json",
+        "evaluation.md",
+        "job.md",
+        "resume.md",
+        "resume.pdf",
+    ]
+    # The files must match what was persisted, not a second rendering.
+    row = app_facade.get_resume(user_id="u1", resume_id=state.resume_id or "")
+    assert row is not None
+    assert (run_dirs[0] / "resume.pdf").read_bytes() == bytes(row["pdf_bytes"])
+    assert (run_dirs[0] / "resume.md").read_text(encoding="utf-8") == row["markdown_text"]
+
+
+def test_generate_withoutOutputDir_writesNothingToDisk(tmp_path: Path) -> None:
+    """The default: tests and library users get no filesystem side effects."""
+    app_facade = _app_with_scripted_calls(_FULL_GENERATION)
+    app_facade.ensure_user("Ada", user_id="u1")
+    app_facade.add_document(user_id="u1", filename="r.txt", text="Built python services on AWS.")
+
+    app_facade.generate(user_id="u1", job_posting="Senior Python Engineer")
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_generate_unwritableOutputDir_doesNotFailTheGeneration(tmp_path: Path) -> None:
+    """The database is the source of truth; the directory is a convenience."""
+    blocked = tmp_path / "blocked"
+    blocked.write_text("not a directory", encoding="utf-8")  # mkdir under this raises OSError
+    app_facade = TrustResumeApp(
+        connection=connect(":memory:"),
+        chroma_client=chromadb.EphemeralClient(),
+        embedder=FakeEmbeddings(),
+        model=FakeToolCallingChatModel(messages=iter(_FULL_GENERATION)),
+        chroma_collection_name=f"test-{uuid.uuid4().hex}",
+        output_dir=blocked,
+    )
+    app_facade.ensure_user("Ada", user_id="u1")
+    app_facade.add_document(user_id="u1", filename="r.txt", text="Built python services on AWS.")
+
+    state = app_facade.generate(user_id="u1", job_posting="Senior Python Engineer")
+
+    assert state.resume_id is not None  # persisted despite the failed mirror
+    assert app_facade.get_resume(user_id="u1", resume_id=state.resume_id) is not None

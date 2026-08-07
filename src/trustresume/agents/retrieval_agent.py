@@ -32,10 +32,17 @@ class _Retriever(Protocol):
     ) -> EvidenceSet: ...
 
 
+#: How many chunks one generation retrieves. Exported (rather than left as a
+#: bare default) because the eval harness measures recall/precision at exactly
+#: this depth — a retrieval metric computed at a cut-off the pipeline never
+#: uses describes nothing (see ``evals/retrieval_eval.DEFAULT_K``).
+DEFAULT_TOP_K = 8
+
+
 class EvidenceRetrievalAgent:
     """Retrieves evidence relevant to a job description for one user."""
 
-    def __init__(self, retriever: _Retriever, *, top_k: int = 8) -> None:
+    def __init__(self, retriever: _Retriever, *, top_k: int = DEFAULT_TOP_K) -> None:
         self._retriever = retriever
         self._top_k = top_k
 

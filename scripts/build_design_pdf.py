@@ -1,11 +1,11 @@
-"""Render detailed_design.md (+ docs/diagrams/*.png) into detailed_design.pdf.
+"""Render docs/detailed-design.md (+ docs/diagrams/*.png) into docs/detailed-design.pdf.
 
 Throwaway doc-tooling, like generate_design_diagrams.py — not part of the app,
 not covered by the test suite. This environment has no network access and no
 pandoc/wkhtmltopdf/weasyprint installed, so this hand-rolls a small Markdown
 subset -> HTML converter (headings, paragraphs, bold/italic/inline-code,
 fenced code blocks, bullet lists, and pipe tables — the only constructs
-detailed_design.md actually uses) and feeds the result to fpdf2's HTML writer,
+docs/detailed-design.md actually uses) and feeds the result to fpdf2's HTML writer,
 which the app already depends on for résumé PDF export
 (trustresume.export.pdf). Diagram images are spliced in at fixed anchor
 points keyed to section headings.
@@ -29,9 +29,9 @@ from fpdf.enums import XPos, YPos
 from fpdf.fonts import TextStyle
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_MD = ROOT / "detailed_design.md"
+SOURCE_MD = ROOT / "docs/detailed-design.md"
 DIAGRAMS_DIR = ROOT / "docs" / "diagrams"
-OUTPUT_PDF = ROOT / "detailed_design.pdf"
+OUTPUT_PDF = ROOT / "docs/detailed-design.pdf"
 
 _FONT_DIR = Path(matplotlib.__file__).resolve().parent / "mpl-data" / "fonts" / "ttf"
 
@@ -341,7 +341,7 @@ def build_pdf() -> None:
         0,
         7,
         "A comprehensive reference for the codebase's architecture, data flow,\n"
-        "testing model, and deployment — companion to architecture/high-level-design.md\n"
+        "testing model, and deployment — companion to docs/architecture/high-level-design.md\n"
         "and docs/code-walkthrough.md.",
         align="C",
         new_x=XPos.LMARGIN,

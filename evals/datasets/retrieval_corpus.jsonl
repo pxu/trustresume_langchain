@@ -1,0 +1,19 @@
+# Retrieval evaluation corpus: synthetic career evidence for one candidate.
+# Written so relevance is decidable by a human without domain guesswork, and
+# so specific retrieval failure modes are probeable (see retrieval_queries.jsonl):
+#   - d1/d2 share vocabulary but describe different work (vector-only systems
+#     confuse them)
+#   - d3 uses an exact product name a paraphrase would miss (keyword's job)
+#   - d4 says the same thing as a query in completely different words
+#     (vector's job — keyword search cannot find it)
+#   - d7/d8 are plausible-but-irrelevant distractors that share surface terms
+{"doc_id": "d1", "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge, processing 40 million events per day. Cut p99 latency from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer."}
+{"doc_id": "d2", "text": "Ran the migration of a monolithic billing service onto AWS ECS Fargate. Wrote the Terraform modules, the blue/green deploy pipeline, and the rollback runbook the on-call team still uses."}
+{"doc_id": "d3", "text": "Introduced Apache Kafka as the backbone for cross-team data exchange, standing up 14 topics with schema-registry-enforced Avro contracts and a consumer-lag alerting stack in Datadog."}
+{"doc_id": "d4", "text": "Taught myself enough of the container orchestrator that runs our clusters to debug a scheduling bug nobody else could reproduce: pods were stuck pending because a node taint had been applied without a matching toleration."}
+{"doc_id": "d5", "text": "Led a team of five engineers through two performance cycles. Ran weekly 1:1s, wrote promotion packets for two reports, and rebuilt the on-call rotation after a quarter with six pages a week."}
+{"doc_id": "d6", "text": "Built the company's first retrieval-augmented generation prototype: chunked 12,000 support tickets, embedded them with sentence-transformers, and served answers from a FastAPI backend over a Qdrant index."}
+{"doc_id": "d7", "text": "Completed an internal training course on cloud cost management. Certificate of attendance only; no project work followed from it."}
+{"doc_id": "d8", "text": "Volunteered at a local coding bootcamp, teaching an introduction to Python for absolute beginners over six Saturday sessions."}
+{"doc_id": "d9", "text": "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2, a shared caching layer that cut mean build time from 11 to 4 minutes, and required status checks."}
+{"doc_id": "d10", "text": "Wrote the incident postmortem process, then ran 23 postmortems over 18 months. Tracked action items to completion; repeat-incident rate fell by roughly half."}

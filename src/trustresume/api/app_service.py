@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from langchain_core.embeddings import Embeddings
@@ -32,9 +34,16 @@ from trustresume.agents import (
     ResumeWriterAgent,
     TrustHarnessAgent,
 )
-from trustresume.export import render_markdown, render_pdf
+from trustresume.export import render_markdown, render_pdf, write_run_artifacts
 from trustresume.ingestion import IngestionService
-from trustresume.models import DocumentType, EvidenceSet, JobDescription, WorkflowState
+from trustresume.models import (
+    ATSReport,
+    DocumentType,
+    EvidenceSet,
+    JobDescription,
+    TrustReport,
+    WorkflowState,
+)
 from trustresume.orchestration import CandidateProfileService, Orchestrator, build_feedback
 from trustresume.orchestration.rejection import build_rejection_reason
 from trustresume.retrieval import ChromaVectorStore, HybridRetriever
@@ -53,6 +62,8 @@ from trustresume.storage import (
 )
 
 from .model_factory import LLMConfig, build_model
+
+logger = logging.getLogger(__name__)
 
 _SUMMARY_FALLBACK_CHARS = 120
 
@@ -89,11 +100,20 @@ class TrustResumeApp:
         chroma_client: Any,  # chromadb.ClientAPI — chromadb ships no type stubs
         embedder: Embeddings,
         model: BaseChatModel,
+        extraction_model: BaseChatModel | None = None,
+        writer_model: BaseChatModel | None = None,
+        verifier_model: BaseChatModel | None = None,
         chroma_collection_name: str = COLLECTION_NAME,
+        output_dir: Path | None = None,
     ) -> None:
         init_db(connection)
         self._connection = connection
         self._chroma_client = chroma_client
+        # ``None`` (the default) writes nothing to disk. Deliberately *not*
+        # defaulted to a real path: every test constructs this class directly,
+        # and a default would have the offline suite scattering directories.
+        # ``build_default_app`` is the one place that sets it.
+        self._output_dir = output_dir
 
         # Storage (M2)
         self._users = UserRepository(connection)
@@ -129,14 +149,24 @@ class TrustResumeApp:
             job_documents=self._job_documents,
         )
 
-        # Agents (M4) + orchestrator (M5). One JobDescriptionAgent instance is
-        # shared between create_job/update_job (which extract at job-creation
-        # time) and the orchestrator (whose _analyze_job node is a no-op
-        # whenever a persisted job is passed in — see Orchestrator._analyze_job)
-        # — a single source of truth, not two agents that happen to agree.
-        self._job_agent = JobDescriptionAgent(model)
+        # Agents (M4) + orchestrator (M5). Each LLM-backed agent takes the
+        # model for its *role* (extraction / writer / verifier — see
+        # model_factory.AGENT_ROLES), falling back to the single shared
+        # ``model`` when the caller didn't tier them. One model everywhere is
+        # still the default; tiering is opt-in config, not a required setup
+        # step, and tests keep passing one fake.
+        extraction = extraction_model or model
+        writer = writer_model or model
+        verifier = verifier_model or model
+
+        # One JobDescriptionAgent instance is shared between
+        # create_job/update_job (which extract at job-creation time) and the
+        # orchestrator (whose _analyze_job node is a no-op whenever a
+        # persisted job is passed in — see Orchestrator._analyze_job) — a
+        # single source of truth, not two agents that happen to agree.
+        self._job_agent = JobDescriptionAgent(extraction)
         candidate_profile_service = CandidateProfileService(
-            agent=CandidateProfileAgent(model),
+            agent=CandidateProfileAgent(extraction),
             chunks=self._chunks,
             profiles=self._candidate_profiles,
         )
@@ -144,8 +174,8 @@ class TrustResumeApp:
             job_description_agent=self._job_agent,
             candidate_profile_service=candidate_profile_service,
             retrieval_agent=EvidenceRetrievalAgent(self._retriever),
-            resume_agent=ResumeWriterAgent(model),
-            trust_agent=TrustHarnessAgent(model),
+            resume_agent=ResumeWriterAgent(writer),
+            trust_agent=TrustHarnessAgent(verifier),
             evaluation_agent=ATSEvaluationAgent(),
         )
 
@@ -414,6 +444,12 @@ class TrustResumeApp:
             rejection_reason = build_rejection_reason(state.gate, trust, ats)
             improvement_suggestions = build_feedback(trust, ats)
 
+        # Rendered once and reused for both the database row and the artifact
+        # directory, so the file on disk is byte-identical to what the API
+        # serves rather than a second, independently-rendered copy.
+        pdf_bytes = render_pdf(draft)
+        markdown_text = render_markdown(draft)
+
         resume_id = self._resumes.create(
             user_id=state.user_id,
             draft=draft,
@@ -422,13 +458,66 @@ class TrustResumeApp:
             ats_score=ats.score,
             passed=state.passed,
             job_id=state.job_id,
-            pdf_bytes=render_pdf(draft),
-            markdown_text=render_markdown(draft),
+            pdf_bytes=pdf_bytes,
+            markdown_text=markdown_text,
             rejection_reason=rejection_reason,
             improvement_suggestions=improvement_suggestions,
+            usage=state.usage,
         )
         self._evaluations.create(user_id=state.user_id, resume_id=resume_id, trust=trust, ats=ats)
         state.resume_id = resume_id
+
+        if self._output_dir is not None:
+            self._write_artifacts(
+                state=state,
+                resume_id=resume_id,
+                trust=trust,
+                ats=ats,
+                markdown=markdown_text,
+                pdf=pdf_bytes,
+                rejection_reason=rejection_reason,
+                improvement_suggestions=improvement_suggestions,
+            )
+
+    def _write_artifacts(
+        self,
+        *,
+        state: WorkflowState,
+        resume_id: str,
+        trust: TrustReport,
+        ats: ATSReport,
+        markdown: str,
+        pdf: bytes,
+        rejection_reason: str | None,
+        improvement_suggestions: str | None,
+    ) -> None:
+        """Mirror the run to a browsable directory — best effort, never fatal.
+
+        The database write above already succeeded and is the source of truth;
+        a full disk or a read-only mount must not turn a completed generation
+        into an error the user sees. Logged at warning level so the failure is
+        visible without being disruptive.
+        """
+        assert self._output_dir is not None  # guarded by the caller
+        try:
+            run_dir = write_run_artifacts(
+                self._output_dir,
+                state=state,
+                resume_id=resume_id,
+                trust=trust,
+                ats=ats,
+                markdown=markdown,
+                pdf=pdf,
+                rejection_reason=rejection_reason,
+                improvement_suggestions=improvement_suggestions,
+            )
+        except OSError as exc:
+            logger.warning(
+                "could not write run artifacts",
+                extra={"output_dir": str(self._output_dir), "error": str(exc)},
+            )
+            return
+        logger.info("run artifacts written", extra={"run_dir": str(run_dir)})
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -457,6 +546,7 @@ def build_default_app(
     db_path: str = "trustresume.db",
     chroma_path: str = "chroma_data",
     llm_config: LLMConfig | None = None,
+    output_dir: str | None = "output",
 ) -> TrustResumeApp:
     """Assemble a production app: file-backed stores + fastembed + an LLM.
 
@@ -468,15 +558,35 @@ def build_default_app(
     default; also OpenAI, Google/Gemini, or an offline ``test`` model). See
     :class:`trustresume.api.model_factory.LLMConfig`. When ``None``, config is
     read from the environment.
+
+    ``output_dir`` mirrors every generation to a browsable directory tree
+    (``trustresume.export.artifacts``). Pass ``None`` to disable it — the
+    database still holds everything either way.
     """
     import chromadb
 
     from trustresume.retrieval import FastEmbedEmbeddings
 
     config = llm_config or LLMConfig.from_env()
+    extraction_model = build_model(config, role="extraction")
     return TrustResumeApp(
         connection=connect(db_path),
         chroma_client=chromadb.PersistentClient(path=chroma_path),
         embedder=FastEmbedEmbeddings(),
-        model=build_model(config),
+        # One model object per role rather than one shared instance: with no
+        # role overrides configured these are three identically-configured
+        # clients (cheap — a client, not a loaded model), and with overrides
+        # they are genuinely different models. Building them here keeps
+        # TrustResumeApp itself free of provider/config knowledge.
+        #
+        # ``model`` is the fallback for any role left unset; since all three
+        # are set here it is never consulted, so it reuses the extraction
+        # client rather than building a fourth. That fourth build wasn't free:
+        # under Bedrock each one opens a boto3 Session and resolves the
+        # profile's credentials, which is slow with SSO.
+        model=extraction_model,
+        extraction_model=extraction_model,
+        writer_model=build_model(config, role="writer"),
+        verifier_model=build_model(config, role="verifier"),
+        output_dir=Path(output_dir) if output_dir else None,
     )

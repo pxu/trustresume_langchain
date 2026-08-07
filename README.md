@@ -8,7 +8,7 @@ This is a from-scratch reimplementation of
 Qdrant MVP) on **LangChain + LangGraph + ChromaDB**, keeping the SQLite storage
 layer and the overall architecture (five/six agents, an orchestrated quality
 loop, trust verification decoupled from generation) unchanged. See
-`architecture/` for the living design and ADRs, and
+`docs/architecture/` for the living design and ADRs, and
 `docs/code-walkthrough.md` for a narrative learning guide to the whole
 codebase.
 
@@ -16,8 +16,12 @@ codebase.
 
 Backend port complete (models → storage → retrieval → ingestion → agents →
 orchestration → API), plus a Streamlit frontend, CI, Docker, structured
-logging, hybrid (vector + keyword) retrieval, and content-hash ingestion
-dedup added on top of the original port. See `architecture/high-level-design.md`
+logging, hybrid (vector + keyword) retrieval, content-hash ingestion dedup,
+persisted jobs with job-scoped retrieval, and résumé export added on top of
+the original port — and, on top of that, a measurement layer: an offline
+evaluation harness with labeled ground truth, per-run token/cost/latency
+accounting, role-tiered models, and per-request user identity
+(ADRs 0011–0014). See `docs/architecture/high-level-design.md`
 for the current module map and `docs/code-walkthrough.md` for how it all fits
 together.
 
@@ -44,6 +48,18 @@ pytest -m live                  # + tests hitting a real embedding model / uvico
 ruff check .                    # lint
 mypy src                        # type-check
 ```
+
+Measure retrieval quality (no credentials needed — fastembed runs locally):
+
+```bash
+python -m trustresume.evals --suite retrieval
+```
+
+Current baseline: recall@8 **1.000**, MRR **0.938** (k=8 = the depth a real generation retrieves) over a labeled 10-document
+corpus — including one query whose answer shares no vocabulary with it (vector
+search's job) and one naming a product the embedder treats as interchangeable
+with its competitors (keyword search's job). That's the empirical case for
+hybrid retrieval. See `evals/README.md`.
 
 Run the API (offline, no credentials needed):
 

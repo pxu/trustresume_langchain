@@ -14,8 +14,10 @@ from trustresume.models import (
     DocumentType,
     EvidenceChunk,
     JobDescription,
+    ModelUsage,
     ResumeDraft,
     ResumeSection,
+    RunUsage,
     TrustReport,
     VerifiedClaim,
 )
@@ -588,6 +590,62 @@ def test_resumeRepository_create_persistsJobIdExportsAndRejectionData(
     assert row["improvement_suggestions"] == "Improve evidence-grounding."
     # Isolation still holds for the new row-returning accessor.
     assert resumes.get_row(user_id="u2", resume_id=resume_id) is None
+
+
+def test_resumeRepository_create_persistsUsageColumns(db: sqlite3.Connection) -> None:
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    resumes = ResumeRepository(db)
+    usage = RunUsage(
+        models=[
+            ModelUsage(model="m1", input_tokens=100, output_tokens=40, calls=3),
+            ModelUsage(model="m2", input_tokens=10, output_tokens=5, calls=1),
+        ],
+        total_duration_ms=1234.5,
+        cost_usd=0.0031,
+    )
+
+    resume_id = resumes.create(
+        user_id="u1",
+        draft=ResumeDraft(summary="s"),
+        job_title=None,
+        trust_score=90.0,
+        ats_score=90.0,
+        passed=True,
+        usage=usage,
+    )
+
+    row = resumes.get_row(user_id="u1", resume_id=resume_id)
+    assert row is not None
+    assert row["input_tokens"] == 110  # summed across both models
+    assert row["output_tokens"] == 45
+    assert row["llm_calls"] == 4
+    assert row["cost_usd"] == 0.0031
+    assert row["duration_ms"] == 1234.5
+
+
+def test_resumeRepository_create_withoutUsage_leavesColumnsNullNotZero(
+    db: sqlite3.Connection,
+) -> None:
+    """Unmeasured must stay distinguishable from measured-and-free."""
+    users = UserRepository(db)
+    users.create("A", user_id="u1")
+    resumes = ResumeRepository(db)
+
+    resume_id = resumes.create(
+        user_id="u1",
+        draft=ResumeDraft(summary="s"),
+        job_title=None,
+        trust_score=90.0,
+        ats_score=90.0,
+        passed=True,
+    )
+
+    row = resumes.get_row(user_id="u1", resume_id=resume_id)
+    assert row is not None
+    assert row["llm_calls"] is None
+    assert row["cost_usd"] is None
+    assert row["duration_ms"] is None
 
 
 def test_resumeRepository_listForJob_scopedToJobAndUser(db: sqlite3.Connection) -> None:
