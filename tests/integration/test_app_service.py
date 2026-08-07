@@ -519,6 +519,7 @@ def test_generate_withOutputDir_writesBrowsableRunDirectory(tmp_path: Path) -> N
         "evaluation.json",
         "evaluation.md",
         "job.md",
+        "metrics.json",
         "resume.md",
         "resume.pdf",
     ]

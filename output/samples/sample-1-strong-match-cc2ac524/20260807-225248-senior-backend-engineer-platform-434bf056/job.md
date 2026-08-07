@@ -38,13 +38,12 @@
 - Go
 - Datadog
 - on-call leadership
-- backend engineer
-- platform
-- logistics
+- logistics platform
 - high-volume
-- event-driven systems at scale
+- backend engineer
+- platform engineering
 - order pipeline
-- build and deploy tooling
+- deploy tooling
 - mentoring
 
 ## Original posting

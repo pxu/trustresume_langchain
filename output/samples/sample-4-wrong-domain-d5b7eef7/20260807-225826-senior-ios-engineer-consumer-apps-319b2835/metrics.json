@@ -1,0 +1,182 @@
+{
+  "models": [
+    {
+      "model": "global.anthropic.claude-opus-4-6-v1",
+      "input_tokens": 17702,
+      "output_tokens": 8070,
+      "calls": 10
+    }
+  ],
+  "totals": {
+    "llm_requests": 10,
+    "input_tokens": 17702,
+    "output_tokens": 8070,
+    "total_tokens": 25772,
+    "duration_ms": 96046.099,
+    "estimated_cost_usd": 0.87078
+  },
+  "steps": [
+    {
+      "step": "analyze_job",
+      "iteration": 0,
+      "duration_ms": 4808.633,
+      "requests": 1,
+      "input_tokens": 1241,
+      "output_tokens": 435,
+      "estimated_cost_usd": 0.05124
+    },
+    {
+      "step": "load_candidate_profile",
+      "iteration": 0,
+      "duration_ms": 3995.095,
+      "requests": 1,
+      "input_tokens": 1247,
+      "output_tokens": 212,
+      "estimated_cost_usd": 0.034605
+    },
+    {
+      "step": "retrieve_evidence",
+      "iteration": 0,
+      "duration_ms": 9.344,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "write_resume",
+      "iteration": 0,
+      "duration_ms": 6946.009,
+      "requests": 1,
+      "input_tokens": 1572,
+      "output_tokens": 409,
+      "estimated_cost_usd": 0.054255
+    },
+    {
+      "step": "score_trust",
+      "iteration": 0,
+      "duration_ms": 15524.793,
+      "requests": 1,
+      "input_tokens": 2155,
+      "output_tokens": 1478,
+      "estimated_cost_usd": 0.143175
+    },
+    {
+      "step": "score_ats",
+      "iteration": 0,
+      "duration_ms": 0.133,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "prepare_rewrite",
+      "iteration": 0,
+      "duration_ms": 0.019,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "write_resume",
+      "iteration": 1,
+      "duration_ms": 7221.781,
+      "requests": 1,
+      "input_tokens": 1663,
+      "output_tokens": 431,
+      "estimated_cost_usd": 0.05727
+    },
+    {
+      "step": "score_trust",
+      "iteration": 1,
+      "duration_ms": 14047.196,
+      "requests": 1,
+      "input_tokens": 2178,
+      "output_tokens": 1441,
+      "estimated_cost_usd": 0.140745
+    },
+    {
+      "step": "score_ats",
+      "iteration": 1,
+      "duration_ms": 0.076,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "prepare_rewrite",
+      "iteration": 1,
+      "duration_ms": 0.013,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "write_resume",
+      "iteration": 2,
+      "duration_ms": 8432.79,
+      "requests": 1,
+      "input_tokens": 1663,
+      "output_tokens": 425,
+      "estimated_cost_usd": 0.05682
+    },
+    {
+      "step": "score_trust",
+      "iteration": 2,
+      "duration_ms": 15825.945,
+      "requests": 1,
+      "input_tokens": 2165,
+      "output_tokens": 1562,
+      "estimated_cost_usd": 0.149625
+    },
+    {
+      "step": "score_ats",
+      "iteration": 2,
+      "duration_ms": 0.093,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "prepare_rewrite",
+      "iteration": 2,
+      "duration_ms": 0.011,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "write_resume",
+      "iteration": 3,
+      "duration_ms": 6849.211,
+      "requests": 1,
+      "input_tokens": 1663,
+      "output_tokens": 408,
+      "estimated_cost_usd": 0.055545
+    },
+    {
+      "step": "score_trust",
+      "iteration": 3,
+      "duration_ms": 12365.011,
+      "requests": 1,
+      "input_tokens": 2155,
+      "output_tokens": 1269,
+      "estimated_cost_usd": 0.1275
+    },
+    {
+      "step": "score_ats",
+      "iteration": 3,
+      "duration_ms": 0.1,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    }
+  ]
+}

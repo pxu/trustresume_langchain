@@ -29,6 +29,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -38,7 +39,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
-from trustresume.models import ModelUsage, NodeTiming, RunUsage
+from trustresume.models import ModelUsage, NodeTiming, NodeUsage, RunUsage
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +73,40 @@ class UsageTracker(BaseCallbackHandler):
         self._by_model: dict[str, ModelUsage] = {}
         self._pricing = pricing if pricing is not None else {}
         self._elapsed_ms = 0.0
+        # LangGraph stamps every LLM call's callback metadata with the
+        # orchestrator node that made it (``langgraph_node``) — recorded here
+        # on_chat_model_start, keyed by that call's run_id, and consumed on
+        # on_llm_end so token counts can be attributed to a node without any
+        # cooperation from the agents themselves. A call outside a graph (a
+        # unit test invoking a model directly) simply has no entry, and is
+        # attributed to nothing rather than guessed at.
+        self._node_by_run_id: dict[uuid.UUID, str] = {}
+        self._node_calls: list[NodeUsage] = []
 
-    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        """Record one completed LLM call's tokens against its model id."""
+    def on_chat_model_start(
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[Any]],
+        *,
+        run_id: uuid.UUID,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        node = (metadata or {}).get("langgraph_node")
+        if node is not None:
+            with self._lock:
+                self._node_by_run_id[run_id] = str(node)
+
+    def on_llm_end(
+        self, response: LLMResult, *, run_id: uuid.UUID | None = None, **kwargs: Any
+    ) -> None:
+        """Record one completed LLM call's tokens against its model id and node.
+
+        ``run_id`` defaults to ``None`` (rather than mirroring the base
+        class's required keyword) so a test can call this directly with just
+        a response, as the existing suite already does; a call with no
+        ``run_id`` simply can't be matched back to a node.
+        """
         message = _final_message(response)
         if message is None:
             return
@@ -101,11 +133,36 @@ class UsageTracker(BaseCallbackHandler):
                     output_tokens=current.output_tokens + output_tokens,
                     calls=current.calls + 1,
                 )
+            node = self._node_by_run_id.pop(run_id, None) if run_id is not None else None
+            if node is not None:
+                price = _price_for(model, self._pricing)
+                call_cost = (
+                    round(
+                        input_tokens / 1_000_000 * price[0] + output_tokens / 1_000_000 * price[1],
+                        6,
+                    )
+                    if price is not None
+                    else None
+                )
+                self._node_calls.append(
+                    NodeUsage(
+                        node=node,
+                        model=model,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cost_usd=call_cost,
+                    )
+                )
 
     def usage(self) -> list[ModelUsage]:
         """A snapshot of per-model usage so far, in first-seen order."""
         with self._lock:
             return list(self._by_model.values())
+
+    def node_calls(self) -> list[NodeUsage]:
+        """A snapshot of per-call, per-node usage so far, in call order."""
+        with self._lock:
+            return list(self._node_calls)
 
     def finalize(self, *, timings: list[NodeTiming] | None = None) -> RunUsage:
         """Fold everything captured so far into a :class:`RunUsage`.
@@ -113,14 +170,15 @@ class UsageTracker(BaseCallbackHandler):
         Call this *after* the :func:`track_usage` block exits — the elapsed
         wall-clock time is stamped on exit, so finalizing early reports
         ``total_duration_ms=0``. ``timings`` comes from the orchestrator's
-        graph state (the tracker never sees node boundaries; it only sees LLM
-        calls), which is why it's a parameter rather than something collected
-        here.
+        graph state (the tracker never sees node boundaries directly; it only
+        sees LLM calls tagged with the node that made them), which is why it's
+        a parameter rather than something collected here.
         """
         models = self.usage()
         return RunUsage(
             models=models,
             timings=list(timings or []),
+            node_calls=self.node_calls(),
             total_duration_ms=self._elapsed_ms,
             cost_usd=estimate_cost(models, self._pricing),
         )
@@ -162,6 +220,34 @@ def load_pricing(path: str | Path | None = None) -> dict[str, tuple[float, float
         return {}
 
 
+def _is_version_extension(model: str, key: str, at: int) -> bool:
+    """True when ``key`` only matches because it's a prefix of a *later version*
+    of the same model family present in ``model``.
+
+    Substring matching lets ``claude-opus-4`` price a Bedrock inference-profile
+    id like ``global.anthropic.claude-opus-4-6-v1``. Left unguarded, the same
+    rule would let that entry also price ``claude-opus-4-7`` the moment
+    Anthropic ships it — a different, unpriced model silently inheriting a
+    previous generation's rate. Rejecting a match whose next character
+    continues a version number (a digit, or a separator then a digit) forces a
+    new generation to get its own row rather than a confidently wrong number.
+
+    Only applies when ``key`` itself ends in a digit — a version token like
+    the trailing ``4`` in ``claude-opus-4``. A key ending in a letter (e.g.
+    ``gpt-4o-mini``) can't be "continued" by a following version number, so a
+    dated snapshot suffix like ``-2024-07-18`` is correctly left alone rather
+    than mistaken for a version extension.
+    """
+    if not key or not key[-1].isdigit():
+        return False
+    tail = model[at + len(key) :]
+    if not tail:
+        return False
+    if tail[0].isdigit():
+        return True
+    return tail[0] in "-._" and len(tail) > 1 and tail[1].isdigit()
+
+
 def _price_for(model: str, pricing: dict[str, tuple[float, float]]) -> tuple[float, float] | None:
     """Price for ``model``: exact id first, then longest matching id fragment.
 
@@ -170,11 +256,17 @@ def _price_for(model: str, pricing: dict[str, tuple[float, float]]) -> tuple[flo
     ``gpt-4o-2024-08-06``), so requiring an exact match would mean re-editing
     the price table on every provider version bump. Substring matching keyed
     on the *longest* configured id avoids the other trap — ``gpt-4o`` must not
-    shadow ``gpt-4o-mini`` just because it was declared first.
+    shadow ``gpt-4o-mini`` just because it was declared first — and
+    :func:`_is_version_extension` guards against the same mechanism silently
+    pricing a later, different model generation.
     """
     if model in pricing:
         return pricing[model]
-    matches = [key for key in pricing if key in model]
+    matches = [
+        key
+        for key in pricing
+        if (at := model.find(key)) != -1 and not _is_version_extension(model, key, at)
+    ]
     if not matches:
         return None
     return pricing[max(matches, key=len)]

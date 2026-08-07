@@ -42,6 +42,28 @@ class ModelUsage(BaseModel):
         return self.input_tokens + self.output_tokens
 
 
+class NodeUsage(BaseModel):
+    """Tokens for one LLM call, attributed to the orchestrator node that made it.
+
+    One entry per successful call, in execution order — mirroring
+    ``NodeTiming``'s per-execution (not per-node-aggregated) shape, because the
+    same node name recurs once per quality-loop iteration with different token
+    counts each time. Populated from LangGraph's own ``langgraph_node`` run
+    metadata (see ``telemetry.UsageTracker``), so it costs nothing extra to
+    compute and needs no cooperation from the agents themselves.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    node: str = Field(..., min_length=1, description="Orchestrator node that made this call.")
+    model: str = Field(..., min_length=1, description="Model id the provider reported.")
+    input_tokens: int = Field(0, ge=0)
+    output_tokens: int = Field(0, ge=0)
+    cost_usd: float | None = Field(
+        None, description="Estimated USD cost of this one call, or None if the model is unpriced."
+    )
+
+
 class NodeTiming(BaseModel):
     """One execution of one orchestrator node.
 
@@ -74,6 +96,10 @@ class RunUsage(BaseModel):
     )
     timings: list[NodeTiming] = Field(
         default_factory=list, description="One entry per node execution, in execution order."
+    )
+    node_calls: list[NodeUsage] = Field(
+        default_factory=list,
+        description="One entry per LLM call attributed to its orchestrator node, in call order.",
     )
     total_duration_ms: float = Field(
         0.0, ge=0, description="Wall-clock duration of the whole run, measured by the caller."
