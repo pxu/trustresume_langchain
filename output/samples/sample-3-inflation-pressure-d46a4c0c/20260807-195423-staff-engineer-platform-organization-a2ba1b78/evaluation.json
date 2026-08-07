@@ -1,0 +1,285 @@
+{
+  "resume_id": "a2ba1b78f6644706bbca625f89ba9b72",
+  "user_id": "sample-3-inflation-pressure",
+  "job_id": null,
+  "iteration": 3,
+  "passed": false,
+  "exhausted": true,
+  "gate": {
+    "min_trust_score": 90.0,
+    "min_ats_score": 85.0,
+    "max_iterations": 3
+  },
+  "trust": {
+    "claims": [
+      {
+        "text": "Senior Backend Engineer with 5+ years of experience",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "The role at Northwind Logistics spans 2021–2026, which is 5 years, consistent with the 5+ years claim."
+      },
+      {
+        "text": "Designing and operating high-scale event-driven systems and platform infrastructure",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "Evidence confirms designing an event-driven order pipeline processing 40M events/day and owning CI/CD platform infrastructure."
+      },
+      {
+        "text": "Proven ability to own CI/CD platform strategy serving 40 engineers",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "Evidence states 'Owned the CI/CD platform for 40 engineers'."
+      },
+      {
+        "text": "Architect cross-team data exchange systems",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence confirms introducing Apache Kafka as the backbone for cross-team data exchange."
+      },
+      {
+        "text": "Lead a team of five engineers through performance cycles",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "Evidence directly states 'Led a team of five engineers through two performance cycles'."
+      },
+      {
+        "text": "Skilled in Python, Go, AWS, Kafka, Kubernetes, and Terraform",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29",
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence confirms Python and Go day to day, AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), Kafka, Kubernetes in production, and Terraform modules written."
+      },
+      {
+        "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "Evidence directly states this."
+      },
+      {
+        "text": "Cut p99 latency from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "Evidence directly states this."
+      },
+      {
+        "text": "Owned the CI/CD platform serving 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that reduced mean build time from 11 minutes to 4 minutes",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "Evidence confirms all details: CI/CD platform for 40 engineers, GitHub Actions runners on autoscaling EC2, shared caching layer, build time cut from 11 minutes to 4."
+      },
+      {
+        "text": "Introduced Apache Kafka as the cross-team data exchange backbone—14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence directly states: 'Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog'."
+      },
+      {
+        "text": "Establishing shared systems architecture standards",
+        "category": "ACHIEVEMENT",
+        "status": "PARTIALLY_SUPPORTED",
+        "evidence_chunk_ids": [
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "The evidence shows introducing Kafka with schema-registry-enforced contracts, which implies establishing standards, but the evidence does not explicitly claim 'establishing shared systems architecture standards' as a broader initiative."
+      },
+      {
+        "text": "Led a team of five engineers through two performance cycles; rebuilt the on-call rotation, reducing pages from six per week to approximately one per week",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29",
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence directly states leading five engineers through two performance cycles, rebuilding on-call rotation, pages dropping from six per week to roughly one per week."
+      },
+      {
+        "text": "Wrote Terraform modules and a blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook still used by the on-call team",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29"
+        ],
+        "rationale": "Evidence directly states: 'Wrote the Terraform modules and the blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses'."
+      },
+      {
+        "text": "Languages: Python, Go",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence states 'Python and Go day to day'."
+      },
+      {
+        "text": "Infrastructure & Cloud: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), Docker, Kubernetes, Terraform",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29",
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence confirms all these technologies: Lambda, EventBridge, SQS in the pipeline; ECS Fargate and EC2 in CI/CD and billing migration; Docker and Kubernetes in production; Terraform modules written."
+      },
+      {
+        "text": "Data & Messaging: Apache Kafka, Avro/Schema Registry, PostgreSQL, Redis",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence confirms Kafka with schema-registry-enforced Avro contracts, and 'Postgres, Redis' in production."
+      },
+      {
+        "text": "Observability & CI/CD: Datadog, GitHub Actions, blue/green deployments",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "7c4c0263d9b84e25a5dd5945100f4c29",
+          "c51ee240b29f49ea8a06ac00944448b8"
+        ],
+        "rationale": "Evidence confirms Datadog for consumer-lag alerting, GitHub Actions runners, and blue/green deploy pipeline."
+      }
+    ],
+    "score": 97.06,
+    "iteration": 3
+  },
+  "ats": {
+    "score": 16.67,
+    "matched_keywords": [
+      "platform strategy",
+      "systems architecture"
+    ],
+    "missing_keywords": [
+      "Staff Engineer",
+      "backend engineering",
+      "platform organization",
+      "technical direction",
+      "architectural roadmap",
+      "high-scale systems",
+      "engineering leadership",
+      "engineering managers",
+      "board-level communication",
+      "billions of events per day"
+    ],
+    "notes": null,
+    "iteration": 3
+  },
+  "rejection_reason": "ATS score 17 (needs >= 85).",
+  "improvement_suggestions": "Soften these claims to match what the evidence actually supports:\n- Establishing shared systems architecture standards\nWhere the evidence genuinely supports them, incorporate these target keywords the draft is missing: Staff Engineer, backend engineering, platform organization, technical direction, architectural roadmap, high-scale systems, engineering leadership, engineering managers, board-level communication, billions of events per day",
+  "usage": {
+    "models": [
+      {
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 18291,
+        "output_tokens": 10461,
+        "calls": 10
+      }
+    ],
+    "timings": [
+      {
+        "node": "analyze_job",
+        "duration_ms": 4964.111540990416
+      },
+      {
+        "node": "load_candidate_profile",
+        "duration_ms": 3794.471000030171
+      },
+      {
+        "node": "retrieve_evidence",
+        "duration_ms": 6.462000019382685
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 9909.35495798476
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 18199.22954100184
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.0426670303568244
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.011500029359012842
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7466.184291988611
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 15744.005332991946
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.07987499702721834
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.020292005501687527
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 11769.951916998252
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 25654.988750000484
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.10862498311325908
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.03629201091825962
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7672.934958012775
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 19064.929499989375
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.07212505443021655
+      }
+    ],
+    "total_duration_ms": 124266.44312497228,
+    "cost_usd": null
+  }
+}

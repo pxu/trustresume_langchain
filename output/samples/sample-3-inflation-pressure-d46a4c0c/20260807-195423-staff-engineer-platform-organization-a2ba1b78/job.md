@@ -18,16 +18,16 @@
 ## ATS keywords
 - Staff Engineer
 - backend engineering
-- platform strategy
+- platform organization
 - technical direction
 - architectural roadmap
+- platform strategy
 - systems architecture
 - high-scale systems
-- billions of events
 - engineering leadership
 - engineering managers
 - board-level communication
-- platform organization
+- billions of events per day
 
 ## Original posting
 ```

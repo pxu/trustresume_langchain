@@ -1,5 +1,5 @@
 {
-  "resume_id": "13ad6e37d51d4973b0909096ba228cf9",
+  "resume_id": "c16d5cc0dc284c3ebeea52b025f35455",
   "user_id": "sample-4-wrong-domain",
   "job_id": null,
   "iteration": 3,
@@ -17,135 +17,98 @@
         "category": "EXPERIENCE",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
-        "rationale": "The evidence shows employment at Northwind Logistics from 2021-2026, which is 5 years."
+        "rationale": "Evidence shows role as Senior Backend Engineer at Northwind Logistics from 2021-2026, which is 5 years."
       },
       {
-        "text": "Designing high-throughput distributed systems",
+        "text": "Designing high-throughput, event-driven systems",
         "category": "SKILL",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
-        "rationale": "Evidence describes designing an event-driven order pipeline processing 40 million events per day, which qualifies as high-throughput distributed systems."
+        "rationale": "Evidence confirms designing an event-driven order pipeline processing 40 million events per day."
       },
       {
         "text": "Leading engineering teams",
         "category": "EXPERIENCE",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
         "rationale": "Evidence confirms leading a team of five engineers through two performance cycles."
-      },
-      {
-        "text": "Owning critical infrastructure",
-        "category": "EXPERIENCE",
-        "status": "SUPPORTED",
-        "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
-        ],
-        "rationale": "Evidence confirms owning the CI/CD platform for 40 engineers."
-      },
-      {
-        "text": "Ship production services processing tens of millions of events daily",
-        "category": "ACHIEVEMENT",
-        "status": "SUPPORTED",
-        "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
-        ],
-        "rationale": "Evidence confirms 40 million events per day."
-      },
-      {
-        "text": "Driving down latency and operational burden",
-        "category": "ACHIEVEMENT",
-        "status": "SUPPORTED",
-        "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347",
-          "4602118dcde64e38950e44f0424169b4"
-        ],
-        "rationale": "Evidence supports latency reduction (900ms to 120ms) and operational burden reduction (pages from six to one per week)."
-      },
-      {
-        "text": "Senior Backend Engineer at Northwind Logistics (2021–2026)",
-        "category": "EXPERIENCE",
-        "status": "SUPPORTED",
-        "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
-        ],
-        "rationale": "Directly stated in evidence."
       },
       {
         "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
         "category": "ACHIEVEMENT",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
-        "rationale": "Directly stated in evidence."
+        "rationale": "Directly stated in the evidence."
       },
       {
         "text": "Cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
         "category": "ACHIEVEMENT",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
-        "rationale": "Directly stated in evidence."
+        "rationale": "Directly stated in the evidence."
       },
       {
         "text": "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that reduced mean build time from 11 minutes to 4 minutes",
         "category": "ACHIEVEMENT",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
-        "rationale": "Directly stated in evidence."
+        "rationale": "Directly stated in the evidence."
       },
       {
         "text": "Wrote Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook still used by the on-call team",
         "category": "ACHIEVEMENT",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
-        "rationale": "Directly stated in evidence."
+        "rationale": "Directly stated in the evidence."
       },
       {
         "text": "Led a team of five engineers through two performance cycles",
         "category": "EXPERIENCE",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347"
+          "0292429796f54a3d979c3b5f29941451"
         ],
-        "rationale": "Directly stated in evidence."
+        "rationale": "Directly stated in the evidence."
       },
       {
         "text": "Rebuilt on-call rotation reducing pages from six per week to roughly one per week",
         "category": "ACHIEVEMENT",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347",
-          "4602118dcde64e38950e44f0424169b4"
+          "0292429796f54a3d979c3b5f29941451",
+          "b8b201d4d3564052b4c65d0c114ceaca"
         ],
-        "rationale": "Directly stated in evidence."
+        "rationale": "Evidence confirms rebuilding on-call rotation after a quarter averaging six pages a week, with pages dropping to roughly one a week."
       },
       {
         "text": "Introduced Apache Kafka as backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
         "category": "ACHIEVEMENT",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "4602118dcde64e38950e44f0424169b4"
+          "b8b201d4d3564052b4c65d0c114ceaca"
         ],
-        "rationale": "Directly stated in evidence."
+        "rationale": "Directly stated in the evidence."
       },
       {
         "text": "Languages: Python, Go",
         "category": "SKILL",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "4602118dcde64e38950e44f0424169b4"
+          "b8b201d4d3564052b4c65d0c114ceaca"
         ],
         "rationale": "Evidence states 'Python and Go day to day.'"
       },
@@ -154,19 +117,19 @@
         "category": "SKILL",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "508127700cff4151ae005fc6683b3347",
-          "4602118dcde64e38950e44f0424169b4"
+          "0292429796f54a3d979c3b5f29941451",
+          "b8b201d4d3564052b4c65d0c114ceaca"
         ],
-        "rationale": "Evidence mentions Lambda, EventBridge, SQS, ECS Fargate, EC2 (autoscaling), Terraform, Docker, Kubernetes, and GitHub Actions across the chunks."
+        "rationale": "AWS services (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, and GitHub Actions are mentioned in the project descriptions. Docker and Kubernetes are confirmed in the evidence ('Docker, Kubernetes in production')."
       },
       {
         "text": "Data & Messaging: Apache Kafka, Avro, PostgreSQL, Redis, Datadog",
         "category": "SKILL",
         "status": "SUPPORTED",
         "evidence_chunk_ids": [
-          "4602118dcde64e38950e44f0424169b4"
+          "b8b201d4d3564052b4c65d0c114ceaca"
         ],
-        "rationale": "Evidence mentions Kafka, Avro, Postgres, Redis, and Datadog."
+        "rationale": "Kafka and Avro are confirmed via the cross-team data exchange work. PostgreSQL (Postgres), Redis, and Datadog are all mentioned in the evidence."
       }
     ],
     "score": 100.0,
@@ -203,86 +166,86 @@
     "models": [
       {
         "model": "global.anthropic.claude-opus-4-6-v1",
-        "input_tokens": 16476,
-        "output_tokens": 8289,
+        "input_tokens": 17736,
+        "output_tokens": 8162,
         "calls": 10
       }
     ],
     "timings": [
       {
         "node": "analyze_job",
-        "duration_ms": 4975.618708005641
+        "duration_ms": 4969.933665997814
       },
       {
         "node": "load_candidate_profile",
-        "duration_ms": 4737.389374990016
+        "duration_ms": 4060.8975830255076
       },
       {
         "node": "retrieve_evidence",
-        "duration_ms": 9.429541998542845
+        "duration_ms": 15.184624993707985
       },
       {
         "node": "write_resume",
-        "duration_ms": 6756.110791990068
+        "duration_ms": 7244.207292038482
       },
       {
         "node": "score_trust",
-        "duration_ms": 14575.563207967207
+        "duration_ms": 15815.772709029261
       },
       {
         "node": "score_ats",
-        "duration_ms": 0.08208403596654534
+        "duration_ms": 0.05075003718957305
       },
       {
         "node": "prepare_rewrite",
-        "duration_ms": 0.014249992091208696
+        "duration_ms": 0.007166992872953415
       },
       {
         "node": "write_resume",
-        "duration_ms": 7210.300250037108
+        "duration_ms": 7060.190166987013
       },
       {
         "node": "score_trust",
-        "duration_ms": 14942.358208005317
+        "duration_ms": 14352.129250008147
       },
       {
         "node": "score_ats",
-        "duration_ms": 0.06175000453367829
+        "duration_ms": 0.08895801147446036
       },
       {
         "node": "prepare_rewrite",
-        "duration_ms": 0.007833994459360838
+        "duration_ms": 0.01387501833960414
       },
       {
         "node": "write_resume",
-        "duration_ms": 6812.561333004851
+        "duration_ms": 6920.617041992955
       },
       {
         "node": "score_trust",
-        "duration_ms": 13827.499499951955
+        "duration_ms": 15061.478916963097
       },
       {
         "node": "score_ats",
-        "duration_ms": 0.05220796447247267
+        "duration_ms": 0.09724998380988836
       },
       {
         "node": "prepare_rewrite",
-        "duration_ms": 0.008459028322249651
+        "duration_ms": 0.016207981389015913
       },
       {
         "node": "write_resume",
-        "duration_ms": 7317.737290984951
+        "duration_ms": 6659.879249986261
       },
       {
         "node": "score_trust",
-        "duration_ms": 13368.362416047603
+        "duration_ms": 12833.320041012485
       },
       {
         "node": "score_ats",
-        "duration_ms": 0.1010000123642385
+        "duration_ms": 0.10145804844796658
       }
     ],
-    "total_duration_ms": 94548.93674998311,
+    "total_duration_ms": 95012.9175420152,
     "cost_usd": null
   }
 }

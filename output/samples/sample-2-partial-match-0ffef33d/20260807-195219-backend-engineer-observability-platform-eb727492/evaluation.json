@@ -1,0 +1,303 @@
+{
+  "resume_id": "eb72749283684c18aa1a45313380e21b",
+  "user_id": "sample-2-partial-match",
+  "job_id": null,
+  "iteration": 3,
+  "passed": false,
+  "exhausted": true,
+  "gate": {
+    "min_trust_score": 90.0,
+    "min_ats_score": 85.0,
+    "max_iterations": 3
+  },
+  "trust": {
+    "claims": [
+      {
+        "text": "Backend Engineer with experience in Go, Python, and distributed systems",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983",
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence confirms Python and Go day to day, and the work on event-driven pipelines, Kafka, and distributed infrastructure supports distributed systems experience."
+      },
+      {
+        "text": "Skilled in building event-driven pipelines processing high-volume workloads",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence confirms designing and shipping an event-driven order pipeline processing 40 million events per day."
+      },
+      {
+        "text": "Operating Kafka-based data exchange infrastructure",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983"
+        ],
+        "rationale": "Evidence confirms introducing Apache Kafka as the backbone for cross-team data exchange."
+      },
+      {
+        "text": "Managing production services on Kubernetes and PostgreSQL",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983"
+        ],
+        "rationale": "Evidence states 'Postgres, Redis, Docker, Kubernetes in production.'"
+      },
+      {
+        "text": "Proven track record of reducing on-call burden through improved alerting and operational practices",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983",
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence confirms rebuilding the on-call rotation and reducing pages from six per week to roughly one per week."
+      },
+      {
+        "text": "Senior Backend Engineer, Northwind Logistics (2021–2026)",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence explicitly states 'Senior Backend Engineer, Northwind Logistics (2021-2026)'."
+      },
+      {
+        "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence directly states this claim."
+      },
+      {
+        "text": "Cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence directly states 'Cut p99 latency from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer.'"
+      },
+      {
+        "text": "Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983"
+        ],
+        "rationale": "Evidence directly states this claim verbatim."
+      },
+      {
+        "text": "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 and a shared caching layer that cut mean build time from 11 minutes to 4",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence directly states this claim."
+      },
+      {
+        "text": "Wrote Terraform modules and a blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence directly states this claim."
+      },
+      {
+        "text": "Led a team of five engineers through two performance cycles",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence directly states 'Led a team of five engineers through two performance cycles.'"
+      },
+      {
+        "text": "Rebuilt the on-call rotation after a quarter averaging six pages/week, reducing pages to roughly one per week",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983",
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence confirms this in both chunks: 'Rebuilt the on-call rotation after a quarter averaging six pages a week; pages dropped to roughly one a week.'"
+      },
+      {
+        "text": "Languages: Go, Python",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983"
+        ],
+        "rationale": "Evidence states 'Python and Go day to day.'"
+      },
+      {
+        "text": "Infrastructure & Orchestration: Kubernetes, Docker, Kafka, AWS (Lambda, EventBridge, SQS, ECS Fargate)",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983",
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence confirms Kubernetes, Docker in production, Kafka usage, and AWS Lambda, EventBridge, SQS, ECS Fargate from the project descriptions."
+      },
+      {
+        "text": "Data Stores: PostgreSQL, Redis",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983"
+        ],
+        "rationale": "Evidence states 'Postgres, Redis, Docker, Kubernetes in production.'"
+      },
+      {
+        "text": "Monitoring & Alerting: Datadog (consumer-lag alerting), on-call rotation management",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "f6dc10b1425245deaba3d448bfb25983",
+          "33f2328fe7ba47c0bc6f66af0b336056"
+        ],
+        "rationale": "Evidence confirms consumer-lag alerting in Datadog and rebuilding the on-call rotation."
+      },
+      {
+        "text": "Other: Terraform, GitHub Actions CI/CD, Schema Registry (Avro)",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "33f2328fe7ba47c0bc6f66af0b336056",
+          "f6dc10b1425245deaba3d448bfb25983"
+        ],
+        "rationale": "Evidence confirms Terraform modules, GitHub Actions runners, and schema-registry-enforced Avro contracts."
+      }
+    ],
+    "score": 100.0,
+    "iteration": 3
+  },
+  "ats": {
+    "score": 42.11,
+    "matched_keywords": [
+      "Backend Engineer",
+      "Go",
+      "Python",
+      "Distributed systems",
+      "Kafka",
+      "Kubernetes",
+      "PostgreSQL",
+      "On-call"
+    ],
+    "missing_keywords": [
+      "Observability",
+      "Telemetry",
+      "Time-series data",
+      "OpenTelemetry",
+      "gRPC",
+      "Prometheus",
+      "Grafana",
+      "SLOs",
+      "Metrics",
+      "Traces",
+      "Ingestion"
+    ],
+    "notes": null,
+    "iteration": 3
+  },
+  "rejection_reason": "ATS score 42 (needs >= 85).",
+  "improvement_suggestions": "Where the evidence genuinely supports them, incorporate these target keywords the draft is missing: Observability, Telemetry, Time-series data, OpenTelemetry, gRPC, Prometheus, Grafana, SLOs, Metrics, Traces, Ingestion",
+  "usage": {
+    "models": [
+      {
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 18334,
+        "output_tokens": 10868,
+        "calls": 10
+      }
+    ],
+    "timings": [
+      {
+        "node": "analyze_job",
+        "duration_ms": 5118.322333029937
+      },
+      {
+        "node": "load_candidate_profile",
+        "duration_ms": 4185.043208999559
+      },
+      {
+        "node": "retrieve_evidence",
+        "duration_ms": 11.90512499306351
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 10341.428707994055
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 25723.103374999482
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.10816601570695639
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.045041029807180166
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7727.7579579968005
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 18515.970707987435
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.13687496539205313
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.04320900188758969
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7937.592875037808
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 19301.328792003915
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.049083027988672256
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.011791998986154795
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7329.843499988783
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 16913.670832989737
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.11716695735231042
+      }
+    ],
+    "total_duration_ms": 123128.29079199582,
+    "cost_usd": null
+  }
+}

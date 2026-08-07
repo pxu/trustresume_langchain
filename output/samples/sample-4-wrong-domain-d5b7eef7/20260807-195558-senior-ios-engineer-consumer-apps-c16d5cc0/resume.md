@@ -1,4 +1,4 @@
-Senior Backend Engineer with 5 years of experience designing high-throughput distributed systems, leading engineering teams, and owning critical infrastructure. Proven ability to ship production services processing tens of millions of events daily while driving down latency and operational burden. Strong foundation in event-driven architecture, CI/CD ownership, and cross-team platform work.
+Senior Backend Engineer with 5 years of experience designing high-throughput, event-driven systems and leading engineering teams. Proven ability to own critical platform infrastructure, reduce latency at scale, and drive operational excellence across distributed services.
 
 ## Senior Backend Engineer — Northwind Logistics (2021–2026)
 - Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day; cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer
