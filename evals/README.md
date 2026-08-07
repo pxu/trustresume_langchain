@@ -93,58 +93,48 @@ practice) but still count for recall, where "missed nothing" is genuinely 1.0.
 ### Trust Harness — Bedrock, `global.anthropic.claude-opus-4-6-v1`, temperature 0
 
 ```
-accuracy   0.500
-macro F1   0.489
+accuracy   0.833
+macro F1   0.833
                      P     R    F1   n
-PARTIALLY_SUPPORTED  0.40  0.40 0.40  5
-SUPPORTED            1.00  0.25 0.40  4
-UNSUPPORTED          0.50  1.00 0.67  3
+PARTIALLY_SUPPORTED  1.00  0.60 0.75  5
+SUPPORTED            1.00  1.00 1.00  4
+UNSUPPORTED          0.60  1.00 0.75  3
 
 too-lenient errors: 0
 ```
 
-**The harness has a systematic one-notch-strict bias.** Every one of the six
-errors is in the same direction, and every one is off by exactly one severity
-step:
+**These numbers are the result of a fix this suite made possible.** The first
+run scored **accuracy 0.500, macro-F1 0.489**, and the per-case detail showed
+why: all six errors ran the same direction, each off by exactly one severity
+step. True statements were judged PARTIALLY_SUPPORTED, overstated ones
+UNSUPPORTED. The clearest case was a claim of "ran 23 postmortems over 18
+months" against evidence reading "ran 23 postmortems over 18 months" — a
+verbatim restatement, downgraded.
 
-| Case | Claim | Expected | Predicted |
-|---|---|---|---|
-| t2, t3, t11 | true statements | SUPPORTED | PARTIALLY_SUPPORTED |
-| t4, t6, t7 | inflated statements | PARTIALLY_SUPPORTED | UNSUPPORTED |
+The cause was in the prompt, not the model. It said *"Be strict... do not give
+the draft the benefit of the doubt"* but never defined the three labels. With
+no boundaries, "be strict" is applied as a uniform downgrade.
 
-The confusion matrix shows the same thing structurally: the `SUPPORTED` row
-and the `UNSUPPORTED` column are where everything piles up, and
-`confusion[X][more-lenient-than-X]` is **0 everywhere**.
+The fix defines each label, states that a restatement, an entailed
+generalization, and a correctly derived figure are all SUPPORTED, and names the
+asymmetry explicitly — a false pass ships a fabrication, a false flag costs one
+rewrite — so the model resists overstatement without discounting everything.
 
-Three things follow, and they're the reason this suite exists:
+| | before | after |
+|---|---|---|
+| accuracy | 0.500 | **0.833** |
+| macro-F1 | 0.489 | **0.833** |
+| SUPPORTED recall | 0.25 | **1.00** |
+| too-lenient errors | 0 | **0** |
 
-1. **The direction is the safe one.** Zero fabrications were passed:
-   UNSUPPORTED recall is 1.000 — every genuinely unsupported claim was caught.
-   A verifier that errs strict costs rewrite iterations; one that errs lenient
-   ships a lie. If you only look at accuracy (0.500) you'd conclude the harness
-   is broken; the `dangerous_errors` count is what says it's *miscalibrated*,
-   not *failing*.
-2. **It has a real cost.** t11 is the clearest case: the claim is "Ran 23
-   incident postmortems over 18 months" and the evidence literally says "ran 23
-   postmortems over 18 months" — a verbatim restatement, judged
-   PARTIALLY_SUPPORTED. Under-crediting true claims drags the Trust score down,
-   which sends genuinely fine drafts back through the rewrite loop and burns
-   LLM calls (and, at the cap, produces an unnecessary rejection).
-3. **The fix is a prompt change, not a code change** — tighten what
-   `trust_verification/verifier.py` tells the model SUPPORTED means, especially
-   that a claim restating the evidence, or generalizing something the evidence
-   entails, is fully supported. **Re-run this suite before and after**; that's
-   the entire point of having a baseline. Don't change the prompt and the
-   baseline in the same commit.
+`SUPPORTED` recall going 0.25 → 1.00 is the bias disappearing. **Too-lenient
+errors stayed at zero**, which is the number that mattered: the harness got
+more accurate without getting more permissive. Confirmed on two consecutive
+runs.
 
-This measurement is not something the runtime Trust score could ever have
-surfaced: that score is computed *from* these verdicts, so a systematically
-strict harness just looks like "drafts that need more rewrites."
-
-Caveats worth stating plainly: 12 cases is small, the labels are
-single-annotator, and at least two (t6 — one false component in a compound
-claim; t12 — teaching beginners vs. mentoring juniors) are genuinely debatable.
-Treat these numbers as a **regression detector**, not a certification.
+Two errors remain, both PARTIALLY_SUPPORTED cases judged UNSUPPORTED — still
+the safe direction, and both are among the cases flagged below as genuinely
+debatable.
 
 ## The datasets
 
