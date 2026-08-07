@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "LLM list prices in USD per 1,000,000 tokens, used by trustresume.telemetry",
+    "to turn per-run token counts into an estimated cost.",
+    "",
+    "Keys are matched against the provider-reported model id: an exact match",
+    "wins, otherwise the LONGEST key that is a substring of the id wins (so",
+    "'gpt-4o-mini' beats 'gpt-4o' for 'gpt-4o-mini-2024-07-18'). That is why",
+    "versioned/region-prefixed ids like 'global.anthropic.claude-opus-4-6-v1'",
+    "do not need their own entry.",
+    "",
+    "A model with no entry here makes the whole run report cost_usd=null",
+    "rather than a partial total (see telemetry.estimate_cost). If you want a",
+    "cost figure for your provider, add its rate below.",
+    "",
+    "These are public list prices; VERIFY against your provider's current",
+    "pricing page before quoting them. Bedrock/Gemini rates are intentionally",
+    "left out rather than guessed — add the rate from your own account's rate",
+    "card. Override this file's path with $TRUSTRESUME_PRICING.",
+    "",
+    "verified_on: 2026-08-07 (openai entries only)"
+  ],
+  "models": {
+    "gpt-4o": { "input_per_1m": 2.5, "output_per_1m": 10.0 },
+    "gpt-4o-mini": { "input_per_1m": 0.15, "output_per_1m": 0.6 }
+  }
+}

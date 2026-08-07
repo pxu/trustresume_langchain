@@ -1,7 +1,8 @@
 """SQLite connection factory and DDL for the structured store.
 
-The schema here is the executable form of the SQLite half of
-``architecture/data-model/README.md`` — keep the two in sync. Every table
+The schema here is the executable form of the SQLite half of the *original*
+repo's ``architecture/data-model/README.md`` — that document wasn't ported
+here (see SYNC.md), so this file is the source of truth. Every table
 carries a ``user_id`` (except ``users`` itself, which *is* the user) so
 isolation can be enforced by filtering, per ADR-0001.
 
@@ -137,6 +138,16 @@ CREATE TABLE IF NOT EXISTS generated_resumes (
     markdown_text           TEXT,
     rejection_reason        TEXT,
     improvement_suggestions TEXT,
+    -- What this resume cost to produce. Nullable because a row written
+    -- before telemetry existed (or by a caller that didn't measure) has no
+    -- honest value to record, and 0 would read as "free" rather than
+    -- "unmeasured". cost_usd stays NULL for a model with no configured
+    -- price (see config/pricing.json).
+    input_tokens            INTEGER,
+    output_tokens           INTEGER,
+    llm_calls               INTEGER,
+    cost_usd                REAL,
+    duration_ms             REAL,
     created_at              TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     -- SET NULL, not CASCADE: deleting a job must not destroy the historical

@@ -33,10 +33,17 @@ COPY --from=builder --chown=trustresume:trustresume /app/.venv ./.venv
 COPY --chown=trustresume:trustresume src ./src
 COPY --chown=trustresume:trustresume config ./config
 
+# TRUSTRESUME_OUTPUT_DIR must be an absolute path under the volume. Its
+# default is the relative "output", which resolves against WORKDIR /app —
+# owned by root while the process runs as trustresume, so every generation
+# would log a permission warning and write nothing. And even with permissions
+# fixed, /app is the container's writable layer: résumés (real candidate data)
+# would be destroyed by the next `docker compose up --build`.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     TRUSTRESUME_DB_PATH=/data/trustresume.db \
-    TRUSTRESUME_CHROMA_PATH=/data/chroma_data
+    TRUSTRESUME_CHROMA_PATH=/data/chroma_data \
+    TRUSTRESUME_OUTPUT_DIR=/data/output
 
 RUN mkdir -p /data && chown trustresume:trustresume /data
 VOLUME ["/data"]

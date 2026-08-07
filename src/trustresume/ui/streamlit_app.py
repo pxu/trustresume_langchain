@@ -31,11 +31,18 @@ from trustresume.models import DocumentType
 from trustresume.ui.api_client import TrustResumeClient
 
 DEFAULT_API_URL = os.getenv("TRUSTRESUME_API_URL", "http://localhost:8000")
+DEFAULT_USER_ID = os.getenv("TRUSTRESUME_USER_ID", "")
 
 
 @st.cache_resource
-def _client(base_url: str) -> TrustResumeClient:
-    return TrustResumeClient(base_url)
+def _client(base_url: str, user_id: str) -> TrustResumeClient:
+    """One cached client per (backend, user) pair.
+
+    ``user_id`` is part of the cache key on purpose: switching users in the
+    sidebar must hand back a client carrying the *new* ``X-User-Id``, not a
+    cached one still scoped to the previous user.
+    """
+    return TrustResumeClient(base_url, user_id=user_id or None)
 
 
 def _error_detail(exc: requests.HTTPError) -> str:
@@ -93,6 +100,27 @@ def _render_documents_tab(client: TrustResumeClient) -> None:
                     st.rerun()
 
 
+def _render_usage(usage: dict[str, Any] | None) -> None:
+    """One line of "what that run cost", under the scores.
+
+    Shown as a caption rather than a metric row: it's operator information,
+    not something the candidate is being scored on. ``cost_usd`` is absent
+    when the model in use has no configured price
+    (``config/pricing.json``) — the line then reports tokens and time only,
+    rather than implying the run was free.
+    """
+    if not usage:
+        return
+    parts = [
+        f"{usage['llm_calls']} LLM calls",
+        f"{usage['total_tokens']:,} tokens",
+        f"{usage['duration_ms'] / 1000:.1f}s",
+    ]
+    if usage.get("cost_usd") is not None:
+        parts.append(f"${usage['cost_usd']:.4f}")
+    st.caption(" · ".join(parts))
+
+
 def _render_generation_result(result: dict[str, Any]) -> None:
     """Shared rendering for a ``GenerateResponse``-shaped dict.
 
@@ -109,6 +137,8 @@ def _render_generation_result(result: dict[str, Any]) -> None:
         st.success("Passed the quality gate.")
     elif result["exhausted"]:
         st.warning("Hit the rewrite cap without passing — showing the last draft anyway.")
+
+    _render_usage(result.get("usage"))
 
     draft = result["draft"]
     st.subheader("Draft")
@@ -300,7 +330,16 @@ def main() -> None:
     st.caption("Evidence-based, ATS-friendly resume generation with trust verification.")
 
     base_url = st.sidebar.text_input("Backend URL", value=DEFAULT_API_URL)
-    client = _client(base_url)
+    user_id = st.sidebar.text_input(
+        "User id",
+        value=DEFAULT_USER_ID,
+        help=(
+            "Sent as X-User-Id. Every document, job, and resume is scoped to "
+            "it (ADR-0001) — change it to see a completely separate workspace. "
+            "Leave blank for the demo user."
+        ),
+    )
+    client = _client(base_url, user_id.strip())
 
     try:
         client.health()

@@ -22,6 +22,7 @@ from .evidence import EvidenceChunk, EvidenceSet
 from .job import JobDescription
 from .resume import ResumeDraft, ResumeSection
 from .trust import ATSReport, TrustReport, VerifiedClaim
+from .usage import ModelUsage, NodeTiming, RunUsage
 from .workflow import QualityGate, WorkflowState
 
 __all__ = [
@@ -44,6 +45,10 @@ __all__ = [
     "VerifiedClaim",
     "TrustReport",
     "ATSReport",
+    # usage / telemetry
+    "ModelUsage",
+    "NodeTiming",
+    "RunUsage",
     # workflow / orchestration
     "QualityGate",
     "WorkflowState",

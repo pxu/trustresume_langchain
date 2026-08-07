@@ -700,3 +700,91 @@ def test_jobsTab_backendUnreachableListingJobs_showsError(mock_session: MagicMoc
 
     assert not at.exception
     assert any("Could not reach the backend" in e.value for e in at.tabs[2].error)
+
+
+def _generation_with_usage(usage: dict[str, object] | None) -> dict[str, object]:
+    return {
+        "draft": {"summary": "s", "sections": [], "iteration": 0},
+        "trust_score": 95.0,
+        "ats_score": 100.0,
+        "passed": True,
+        "exhausted": False,
+        "iterations": 0,
+        "hallucinations": [],
+        "missing_keywords": [],
+        "usage": usage,
+    }
+
+
+def _run_generate(at: AppTest) -> None:
+    gen_tab = at.tabs[1]
+    gen_tab.text_area[0].set_value("Senior Python Engineer").run()
+    gen_tab.button[0].click().run()
+
+
+def test_generateTab_usageWithKnownPrice_showsCostCaption(mock_session: MagicMock) -> None:
+    mock_session.post.return_value = _ok_response(
+        _generation_with_usage(
+            {
+                "llm_calls": 4,
+                "input_tokens": 1000,
+                "output_tokens": 500,
+                "total_tokens": 1500,
+                "duration_ms": 8200.0,
+                "cost_usd": 0.0123,
+            }
+        )
+    )
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    _run_generate(at)
+
+    assert not at.exception
+    caption = next(c.value for c in at.tabs[1].caption if "LLM calls" in c.value)
+    assert "4 LLM calls" in caption
+    assert "1,500 tokens" in caption
+    assert "8.2s" in caption
+    assert "$0.0123" in caption
+
+
+def test_generateTab_usageWithoutPrice_showsTokensButNoDollarFigure(
+    mock_session: MagicMock,
+) -> None:
+    """The offline default: real token counts, honestly no cost (ADR-0012).
+
+    Showing "$0.0000" here would claim the run was free rather than unpriced.
+    """
+    mock_session.post.return_value = _ok_response(
+        _generation_with_usage(
+            {
+                "llm_calls": 4,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "total_tokens": 150,
+                "duration_ms": 120.0,
+                "cost_usd": None,
+            }
+        )
+    )
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    _run_generate(at)
+
+    assert not at.exception
+    caption = next(c.value for c in at.tabs[1].caption if "LLM calls" in c.value)
+    assert "150 tokens" in caption
+    assert "$" not in caption
+
+
+def test_generateTab_noUsageInResponse_rendersNoCaption(mock_session: MagicMock) -> None:
+    """An older backend (or an unmeasured run) must not break the page."""
+    mock_session.post.return_value = _ok_response(_generation_with_usage(None))
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+    _run_generate(at)
+
+    assert not at.exception
+    assert not [c for c in at.tabs[1].caption if "LLM calls" in c.value]

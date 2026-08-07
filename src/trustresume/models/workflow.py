@@ -23,6 +23,7 @@ from .evidence import EvidenceSet
 from .job import JobDescription
 from .resume import ResumeDraft
 from .trust import ATSReport, TrustReport
+from .usage import RunUsage
 
 
 class QualityGate(BaseModel):
@@ -98,6 +99,14 @@ class WorkflowState(BaseModel):
     ats_reports: list[ATSReport] = Field(default_factory=list, description="ATS report per draft.")
     iteration: int = Field(
         default=0, ge=0, description="Current iteration (0 = initial generation)."
+    )
+    usage: RunUsage | None = Field(
+        None,
+        description=(
+            "Tokens, estimated cost, and wall-clock time for this run, set by "
+            "the orchestrator. None for a state built by hand (tests, a "
+            "caller assembling a state outside a real run)."
+        ),
     )
 
     @property

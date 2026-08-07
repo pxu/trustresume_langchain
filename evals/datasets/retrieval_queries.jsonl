@@ -1,0 +1,16 @@
+# Retrieval evaluation queries. Each case names the documents a correct system
+# must surface, and `note` states which capability it probes — so a regression
+# points at a cause instead of just a lower number.
+#
+# Queries are phrased the way this system actually queries: `retrieval/query.py`
+# builds one string from a job posting's title + skills + keywords, so these are
+# skill-shaped phrases, not natural-language questions.
+{"query_id": "q1", "query": "AWS Lambda serverless event-driven architecture", "relevant_doc_ids": ["d1"], "note": "Exact technology named in the posting. Vector-only retrieval tends to rank d2 (also AWS) alongside it; keyword search should pin d1."}
+{"query_id": "q2", "query": "Kafka event streaming schema registry", "relevant_doc_ids": ["d3"], "note": "Exact product name. The embedding model treats Kafka/Kinesis/SQS as near-synonyms, so this is the keyword half of hybrid retrieval earning its place."}
+{"query_id": "q3", "query": "Kubernetes container orchestration troubleshooting", "relevant_doc_ids": ["d4"], "note": "d4 never says 'Kubernetes' — it describes it. Pure keyword search scores 0 here; this is the vector half earning its place."}
+{"query_id": "q4", "query": "Terraform infrastructure as code deployment automation", "relevant_doc_ids": ["d2", "d9"], "note": "Two genuinely relevant documents: recall@k must find both, not stop at the first."}
+{"query_id": "q5", "query": "team leadership mentoring engineers", "relevant_doc_ids": ["d5"], "note": "Soft-skill phrasing with no shared technical vocabulary. d8 (teaching beginners) is a deliberate near-miss distractor."}
+{"query_id": "q6", "query": "RAG retrieval augmented generation vector database embeddings", "relevant_doc_ids": ["d6"], "note": "Dense jargon query — the case most likely to look good on any configuration, included as a sanity floor."}
+{"query_id": "q7", "query": "incident response postmortem on-call reliability", "relevant_doc_ids": ["d10", "d5"], "note": "d5 is partially relevant (rebuilt the on-call rotation); labeling it tests that a genuinely related document isn't lost behind the obvious one."}
+{"query_id": "q8", "query": "CI CD build pipeline developer productivity", "relevant_doc_ids": ["d9"], "note": "d2 mentions a deploy pipeline too — a precision test, not a recall test."}
+{"query_id": "q9", "query": "cost optimization FinOps cloud spend", "relevant_doc_ids": [], "note": "Deliberately unanswerable: only d7 (attendance certificate) matches on surface terms. The right behavior is to surface nothing worth grounding a claim in — this case exists so an over-eager retriever's precision drops visibly."}

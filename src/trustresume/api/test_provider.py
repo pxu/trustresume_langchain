@@ -24,6 +24,7 @@ from typing import Any
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.messages.tool import ToolCall
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable
@@ -74,12 +75,19 @@ def _synthesize_object(schema: dict[str, Any]) -> dict[str, Any]:
     return {name: _synthesize_value(properties[name]) for name in required if name in properties}
 
 
+#: Model id this fake reports as ``response_metadata["model_name"]``. It is
+#: deliberately absent from ``config/pricing.json``, so an offline run reports
+#: real token counts with ``cost_usd=None`` — the honest answer, and a live
+#: exercise of the unpriced-model path.
+FAKE_MODEL_NAME = "trustresume-test-fake"
+
+
 class AutoStructuredFakeChatModel(BaseChatModel):
     """Offline chat model that auto-fills whatever tool schema is bound to it."""
 
     @property
     def _llm_type(self) -> str:
-        return "trustresume-test-fake"
+        return FAKE_MODEL_NAME
 
     def bind_tools(
         self,
@@ -102,11 +110,43 @@ class AutoStructuredFakeChatModel(BaseChatModel):
         if not tools:
             # No schema bound (e.g. a plain chat call, like the poc smoke
             # test's tool-calling agent probing before it picks a tool).
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="ok"))])
+            return ChatResult(
+                generations=[ChatGeneration(message=self._message("ok", messages, None))]
+            )
 
         function = tools[0]["function"]
         args = _synthesize_object(function["parameters"])
-        message = AIMessage(
-            content="", tool_calls=[ToolCall(name=function["name"], args=args, id="auto-1")]
+        tool_call = ToolCall(name=function["name"], args=args, id="auto-1")
+        return ChatResult(
+            generations=[ChatGeneration(message=self._message("", messages, tool_call))]
         )
-        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    def _message(
+        self, content: str, prompt: list[BaseMessage], tool_call: ToolCall | None
+    ) -> AIMessage:
+        """An ``AIMessage`` carrying synthetic-but-plausible token accounting.
+
+        Real usage numbers matter here even though the model is fake: the
+        telemetry path (``trustresume.telemetry.UsageTracker``) reads
+        ``usage_metadata`` and ``response_metadata["model_name"]`` off this
+        message, and a fake that omitted them would make token/cost reporting
+        untestable in exactly the offline mode the whole test suite runs in.
+        Counts are a deterministic ~4-chars-per-token estimate of the real
+        prompt and response, so they scale with input size the way real ones
+        do — they are *not* a real tokenizer's output and shouldn't be
+        compared against a provider's billing.
+        """
+        prompt_chars = sum(len(str(message.content)) for message in prompt)
+        response_chars = len(content) + (len(str(tool_call["args"])) if tool_call else 0)
+        input_tokens = max(1, prompt_chars // 4)
+        output_tokens = max(1, response_chars // 4)
+        return AIMessage(
+            content=content,
+            tool_calls=[tool_call] if tool_call else [],
+            usage_metadata=UsageMetadata(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+            ),
+            response_metadata={"model_name": FAKE_MODEL_NAME},
+        )

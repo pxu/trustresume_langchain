@@ -13,7 +13,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints
 
-from trustresume.models import DocumentType, EvidenceSet, ResumeDraft, WorkflowState
+from trustresume.models import DocumentType, EvidenceSet, ResumeDraft, RunUsage, WorkflowState
 
 # ``min_length=1`` alone accepts a whitespace-only string (e.g. " "), which
 # would sail through validation and then silently produce a document with
@@ -93,6 +93,37 @@ class ClaimView(BaseModel):
     category: str
 
 
+class UsageView(BaseModel):
+    """What a run consumed, flattened for the wire.
+
+    Flat scalars rather than the nested :class:`~trustresume.models.RunUsage`
+    (which carries per-model and per-node breakdowns): a client showing "this
+    took 12s and cost $0.04" shouldn't have to sum arrays, and the detailed
+    breakdown stays available server-side in logs and the eval harness.
+    """
+
+    llm_calls: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    duration_ms: float
+    cost_usd: float | None = Field(
+        None, description="None when any model used has no configured price."
+    )
+
+    @classmethod
+    def from_usage(cls, usage: RunUsage) -> UsageView:
+        """Project a :class:`RunUsage` onto the wire shape."""
+        return cls(
+            llm_calls=usage.llm_calls,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            total_tokens=usage.total_tokens,
+            duration_ms=round(usage.total_duration_ms, 1),
+            cost_usd=usage.cost_usd,
+        )
+
+
 class GenerateResponse(BaseModel):
     """The result of a generation run, shaped for the React client.
 
@@ -109,6 +140,7 @@ class GenerateResponse(BaseModel):
     hallucinations: list[ClaimView]
     missing_keywords: list[str]
     resume_id: str | None = None
+    usage: UsageView | None = None
 
     @classmethod
     def from_state(cls, state: WorkflowState) -> GenerateResponse:
@@ -130,6 +162,7 @@ class GenerateResponse(BaseModel):
             ],
             missing_keywords=ats.missing_keywords,
             resume_id=state.resume_id,
+            usage=UsageView.from_usage(state.usage) if state.usage else None,
         )
 
 
@@ -179,3 +212,6 @@ class ResumeDetail(ResumeSummary):
     draft: ResumeDraft
     rejection_reason: str | None
     improvement_suggestions: str | None
+    usage: UsageView | None = Field(
+        None, description="What this resume cost to generate; None for rows written unmeasured."
+    )

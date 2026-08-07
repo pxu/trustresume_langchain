@@ -11,7 +11,7 @@ scoped by ``user_id``.
 
 Independent write path, not a pipeline step: it runs on its own trigger
 (document upload/delete), not on a ``generate()`` call — see "Ingestion is a
-separate write path" in ``architecture/high-level-design.md``. Because of
+separate write path" in ``docs/architecture/high-level-design.md``. Because of
 that, it's also the thing that invalidates the cached Candidate Profile: after
 any mutation for a user, it flags that user's profile stale so
 ``CandidateProfileService`` recomputes it next time it's needed, instead of

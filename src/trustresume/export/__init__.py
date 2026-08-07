@@ -5,12 +5,14 @@ renderer — same "pure functions over a shared model" pattern as
 ``evaluation/``/``trust_verification/``. Every generated resume is rendered
 to both forms and persisted alongside its scores (see
 ``api/app_service.py``'s ``_persist``), not generated on demand at download
-time.
+time. ``artifacts.py`` additionally mirrors each run to a browsable directory
+on disk — a convenience view over the database, never a source of truth.
 """
 
 from __future__ import annotations
 
+from .artifacts import write_run_artifacts
 from .markdown import render_markdown
 from .pdf import render_pdf
 
-__all__ = ["render_markdown", "render_pdf"]
+__all__ = ["render_markdown", "render_pdf", "write_run_artifacts"]

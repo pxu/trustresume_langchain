@@ -17,6 +17,19 @@ from tests.fakes import FakeEmbeddings
 from trustresume.storage import connect, init_db
 
 
+@pytest.fixture(autouse=True)
+def _isolate_pricing_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep cost assertions independent of the developer's environment.
+
+    ``track_usage()`` calls ``load_pricing()`` on every orchestrator run, and
+    that reads ``$TRUSTRESUME_PRICING``. A machine with it pointed at a table
+    containing the fake models\' ids would flip the suite\'s
+    ``cost_usd is None`` assertions to a number — a failure that reproduces on
+    one laptop and nowhere else.
+    """
+    monkeypatch.delenv("TRUSTRESUME_PRICING", raising=False)
+
+
 @pytest.fixture
 def db() -> Iterator[sqlite3.Connection]:
     """A fresh, initialized in-memory SQLite database per test."""

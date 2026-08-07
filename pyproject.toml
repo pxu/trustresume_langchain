@@ -103,7 +103,13 @@ branch = true
 # "not part of the TrustResume pipeline") — meaningfully testing it needs a
 # real LLM call, so it's exercised manually, the same reason test_api_live.py
 # is `live`-marked rather than covered here.
-omit = ["src/trustresume/poc/*"]
+#
+# evals/cli.py is the same case: it's the one module in the eval harness that
+# builds real dependencies (fastembed, a real Chroma collection, a real LLM),
+# which is exactly what the offline suite exists to avoid. Everything it calls
+# — metrics, dataset loading, both evaluators — is dependency-injected and
+# fully covered by tests/unit/test_evals.py and test_eval_metrics.py.
+omit = ["src/trustresume/poc/*", "src/trustresume/evals/cli.py"]
 
 [tool.coverage.report]
 show_missing = true

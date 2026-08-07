@@ -13,15 +13,28 @@ from typing import Any, cast
 import requests
 
 DEFAULT_TIMEOUT = 120  # seconds — a generation run can take several LLM calls
+#: Mirrors ``api.server.USER_ID_HEADER``; duplicated rather than imported so
+#: the UI package keeps its one-way dependency on the backend (HTTP only, no
+#: Python imports from ``trustresume.api``).
+USER_ID_HEADER = "X-User-Id"
 
 
 class TrustResumeClient:
     """A session-backed client for one TrustResume API base URL."""
 
-    def __init__(self, base_url: str, *, timeout: float = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+        self, base_url: str, *, timeout: float = DEFAULT_TIMEOUT, user_id: str | None = None
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._session = requests.Session()
+        # Set once on the session rather than per call: every route is
+        # user-scoped (ADR-0001), so a client that forgot the header on one
+        # method would silently read the demo user's data instead of its own.
+        # Omitted entirely when no id is given, which the backend reads as
+        # "the demo user".
+        if user_id:
+            self._session.headers[USER_ID_HEADER] = user_id
 
     def health(self) -> dict[str, Any]:
         resp = self._session.get(f"{self.base_url}/api/health", timeout=self.timeout)

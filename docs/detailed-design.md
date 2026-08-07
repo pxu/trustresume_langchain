@@ -5,8 +5,8 @@ does, how the pieces fit together, how data flows through one generation run,
 how it's tested, and how it's deployed. This is a companion to (not a
 replacement for) the shorter docs already in the repo:
 
-- `architecture/high-level-design.md` — components + what changed from the original
-- `architecture/decisions/*.md` — ADRs (why, not just what)
+- `docs/architecture/high-level-design.md` — components + what changed from the original
+- `docs/architecture/decisions/*.md` — ADRs (why, not just what)
 - `docs/code-walkthrough.md` — narrative learning guide (written in Chinese)
 - `CLAUDE.md` — commands, conventions, package map
 
@@ -52,12 +52,14 @@ src/trustresume/
 ├── agents/               six pure input→output agents wrapping chat_model.with_structured_output(Schema)
 ├── orchestration/        Orchestrator (LangGraph StateGraph), CandidateProfileService, build_feedback
 ├── trust_verification/   Trust Harness prompt/formatting/report-assembly — pure functions, no LLM import
-├── evaluation/           ATS keyword-coverage scoring — pure functions
+├── evaluation/           ATS keyword-coverage scoring — pure functions (product: scores one résumé)
+├── evals/                offline evaluation harness — retrieval + Trust Harness metrics vs. labeled data (engineering: scores the system)
 ├── export/               render a ResumeDraft to Markdown / PDF (fpdf2)
 ├── api/                  TrustResumeApp facade, model_factory (provider-agnostic LLM), test provider, FastAPI server, wire schemas
 ├── ui/                   Streamlit frontend — thin REST client only, no backend imports
 ├── poc/                  standalone LLM connectivity smoke test (not part of the app; excluded from coverage)
-└── logging_config.py     stdlib logging + JSON formatter, configured once at process entry
+├── logging_config.py     stdlib logging + JSON formatter, configured once at process entry
+└── telemetry.py          per-run token/cost/latency capture (LangChain callback) + config-driven pricing
 ```
 
 Dependency direction is strictly bottom-up in this list: `models/` is
@@ -502,6 +504,34 @@ non-default provider's SDK is imported lazily inside its own branch of
 keeps the base install lean. Bedrock is the default and authenticates via an
 AWS profile (`aws_profile`/`aws_region`), not an API key.
 
+**Sampling temperature is pinned, defaulting to `0`** (ADR-0013). Previously
+no branch passed `temperature`, so each provider's own default applied — a
+value outside this project's control that varies by provider and by model
+generation. Three of the four LLM steps are structured
+extraction/classification, where sampling variance turns directly into a
+Trust score that differs between identical runs; the project's
+"scores are computed by code, never self-reported" claim was resting on an
+unpinned parameter.
+
+**Models tier by role, not by agent** (ADR-0013). `AGENT_ROLES =
+("extraction", "writer", "verifier")` groups the four LLM steps by the *kind
+of work* they do, so adding a seventh agent picks a fitting role instead of
+needing a new config key:
+
+| Role | Agents | Rationale |
+|---|---|---|
+| `extraction` | Job Description, Candidate Profile | Text → fixed schema; the cheapest model that reliably fills a schema is usually enough |
+| `writer` | Resume Writer | The one genuinely generative step — the only place a stronger model changes what a user reads |
+| `verifier` | Trust Harness | The project's core correctness claim; the last place to economize |
+
+`build_model(config, role=...)` resolves the role's model and temperature,
+falling back to the base values. Tiering is **opt-in**: with no `roles`
+configured all three resolve identically, so the default deployment and every
+existing test are unaffected. A malformed `temperature` or `roles` block is
+logged and ignored rather than raised — a config typo shouldn't stop the
+server from starting, and the fallback (deterministic sampling) is the safe
+direction.
+
 ### 9.3 The offline `test` provider (`test_provider.py`)
 
 `AutoStructuredFakeChatModel` — LangChain's own `GenericFakeChatModel`
@@ -528,9 +558,27 @@ production, which builds the *real* facade from environment variables only
 once the server actually starts (so importing the module has zero side
 effects).
 
-Route surface (all against a single hardcoded `DEMO_USER_ID = "demo-user"` —
-every store call is still genuinely user-scoped underneath, so real auth
-slots in by replacing just that one constant):
+**Caller identity** comes from the `X-User-Id` header, resolved once by the
+module-level `resolve_user` dependency and injected into every user-scoped
+route as `CurrentUser` (ADR-0014). Absent or blank → `DEMO_USER_ID`, so the
+walk-up-and-try-it flow still works; unknown ids are created on first use;
+ids are validated against `[A-Za-z0-9._-]{1,64}` rather than trusted blindly
+(queries are parameterized, so this isn't injection defense — it's about not
+letting a stray header mint megabyte-long database keys). This is *identity,
+not authentication*: the header is taken at face value. Its purpose is that
+ADR-0001's isolation became **testable** — while every route hardcoded one
+demo user, no test could show two users are actually isolated. Real auth is a
+one-function replacement; everything underneath is already user-scoped.
+
+> Implementation constraint worth preserving: `resolve_user` must stay at
+> **module scope** and reach the facade through `request.app.state`. With
+> `from __future__ import annotations` every annotation is a string, so a
+> `CurrentUser` alias defined inside `create_app` is unresolvable from module
+> globals — FastAPI silently degrades it to an unknown *query parameter* and
+> **every route returns 422**. Caught only by running the app; neither mypy
+> nor ruff flags it.
+
+Route surface:
 
 | Method + path | What it does |
 |---|---|
@@ -552,8 +600,11 @@ Wire DTOs (`schemas.py`) are intentionally distinct from `models/` — e.g.
 `GenerateResponse.from_state(state: WorkflowState)` projects the internal
 state into a flatter shape (`draft`, `trust_score`, `ats_score`, `passed`,
 `exhausted`, `iterations`, `hallucinations: list[ClaimView]`,
-`missing_keywords`, `resume_id`) so the domain model can evolve without
-silently changing the public API contract.
+`missing_keywords`, `resume_id`, `usage`) so the domain model can evolve
+without silently changing the public API contract. `UsageView` flattens
+`RunUsage` (§12.2) to scalars — a client showing "this took 12s and cost
+$0.04" shouldn't have to sum arrays, while the per-model and per-node
+breakdown stays available server-side to logs and the eval harness.
 
 ---
 
@@ -599,6 +650,7 @@ users (id, name, created_at)
   └─ generated_resumes (id, user_id, job_id [ON DELETE SET NULL], job_title,
        iteration, summary, content_json, trust_score, ats_score, passed,
        pdf_bytes, markdown_text, rejection_reason, improvement_suggestions,
+       input_tokens, output_tokens, llm_calls, cost_usd, duration_ms,
        created_at)
        └─ evaluations (id, resume_id, user_id, iteration, trust_score,
                          ats_score, trust_report_json, ats_report_json,
@@ -613,6 +665,11 @@ Notable design choices:
   `CASCADE`** — deleting a job must not destroy the historical record of
   résumés generated against it; `job_title` is flattened at persist time so
   the row stays meaningful even after its job is gone.
+- **The five usage columns are nullable, never defaulted to 0** — an
+  unmeasured run is not a free one, and `0` would claim otherwise. They're
+  flattened rather than stored as a JSON blob so "what did résumés cost me
+  last month" is one `SUM()`, not a table scan that parses JSON per row
+  (ADR-0012).
 - **Foreign keys are enforced per-connection** (`PRAGMA foreign_keys = ON` in
   `connect()`) — SQLite defaults this off.
 - **One shared connection, `check_same_thread=False`**, serves FastAPI's
@@ -630,7 +687,9 @@ Notable design choices:
 
 ---
 
-## 12. Observability (`logging_config.py`)
+## 12. Observability
+
+### 12.1 Structured logging (`logging_config.py`)
 
 Stdlib `logging` (no third-party logging library) + a `JsonFormatter` that
 renders every record as one JSON object per line — the standard shape for
@@ -652,6 +711,58 @@ and won't catch it. This is why `ingestion/service.py` logs `doc_filename`,
 not `filename`. Regression test:
 `test_logging_config.py::test_loggerInfo_withExtra_doesNotRaiseOnReservedLookingKeys`.
 
+### 12.2 Token, cost, and latency accounting (`telemetry.py`, ADR-0012)
+
+One generation makes **5–9+ sequential LLM calls** (one per LLM-backed agent,
+times up to four quality-loop iterations), so "what did that cost, and where
+did the time go" isn't answerable from any single call.
+
+The obstacle is specific: every agent calls
+`model.with_structured_output(Schema)`, whose result is the *parsed Pydantic
+object* — the underlying `AIMessage`, and with it `usage_metadata`, is
+consumed inside the chain and never reaches the agent. **A callback handler is
+the only place the raw message is still visible.** So `UsageTracker` is a
+`BaseCallbackHandler`, attached once per run by the orchestrator:
+
+```python
+with track_usage() as tracker:
+    result = await self._graph.ainvoke(
+        initial, config={"recursion_limit": ..., "callbacks": [tracker]}
+    )
+usage = tracker.finalize(timings=result["timings"])
+```
+
+LangChain propagates callbacks into nested runnables, so one tracker sees
+every agent's model call while **no agent knows it exists**.
+
+Design points that carry weight:
+
+- **Not `langchain_core`'s `UsageMetadataCallbackHandler`.** It drops usage
+  entirely when a provider omits `response_metadata["model_name"]` — silently
+  reporting zero cost is the exact failure this module exists to prevent — and
+  it counts tokens but not *calls*, and "how many round-trips did one
+  generation make" is a headline number here. `UsageTracker` attributes
+  nameless calls to `"unknown"` and counts a call even when usage metadata is
+  absent.
+- **Prices live in `config/pricing.json`, not in source.** List prices change
+  often enough that hard-coding them guarantees they're wrong later.
+- **An unpriced model yields `cost_usd = None`, never a partial total.** A sum
+  that quietly omits the most expensive model reads like a real number and is
+  wrong in the cheap direction.
+- **Per-node latency** comes from `_timed()`, applied once at
+  graph-construction time rather than inside seven node bodies — a node added
+  later is measured automatically. Timings are an append-only *list*, so "was
+  the 3rd rewrite slower than the 1st" stays answerable.
+- **Both offline fakes emit `usage_metadata` + a `model_name`.** Without that,
+  every token assertion in the offline suite would pass vacuously on zeros.
+  Neither fake's model id appears in `config/pricing.json`, so offline runs
+  report real token counts with an honest `cost_usd: null` — which also
+  exercises the unpriced-model path for free.
+
+Usage flows out through `WorkflowState.usage` → `GenerateResponse` /
+`ResumeDetail` → five columns on `generated_resumes` (§11) → a caption in the
+Streamlit UI.
+
 ---
 
 ## 13. End-to-end data flow: one `POST /api/generate` call
@@ -671,9 +782,19 @@ Assumes documents are already ingested.
    └─ else → build_feedback(trust, ats) → prepare_rewrite (iteration += 1) → back to step 4
    └────────────────────────────────────────────────────────────────────────┘
 7. TrustResumeApp._persist(state): write final draft + PDF/Markdown export +
-   scores to SQLite; if failing, also rejection_reason + improvement_suggestions
-8. WorkflowState → GenerateResponse (real scores, flagged hallucinations, missing keywords)
+   scores + run usage (tokens/calls/cost/duration) to SQLite; if failing,
+   also rejection_reason + improvement_suggestions. Then mirror the run to
+   output/<user_id>/<timestamp>-<job-slug>-<id>/ (resume.md, resume.pdf,
+   evaluation.md, evaluation.json, job.md) — best effort: an OSError there is
+   logged and swallowed, since the database already has everything
+8. WorkflowState → GenerateResponse (real scores, flagged hallucinations,
+   missing keywords, resume_id, usage)
 ```
+
+Throughout steps 1-6 a single `UsageTracker` is attached as a LangGraph
+callback (§12.2), so every LLM call above is counted without any agent
+participating; each node is timed by the `_timed()` wrapper applied at graph
+construction.
 
 `generate_for_job(job_id)` is the same flow with two differences: step 1 is
 skipped (the persisted `JobDescription` is passed straight into the graph,
@@ -694,8 +815,9 @@ Whole stack runs offline — no network, no credentials (NFR-5).
 | SQLite FTS5 keyword search | No fake — `:memory:` has FTS5 built in |
 | Document parsing (.docx/.pdf) | `unstructured.partition.auto.partition` mocked for the element-joining unit test; two `live`-marked tests parse real sample files |
 | Embedding model | `tests/fakes.py`'s `FakeEmbeddings` (SHA-256-hashed vectors); real `FastEmbedEmbeddings`'s lazy-load contract is mock-tested, its real output is `live`-marked |
-| LLM (unit tests) | `tests/fakes.py`'s `scripted_tool_call(name, args)` — a `FakeToolCallingChatModel` returning one scripted tool call; `name` must match the target schema's class name |
+| LLM (unit tests) | `tests/fakes.py`'s `scripted_tool_call(name, args)` — a `FakeToolCallingChatModel` returning one scripted tool call; `name` must match the target schema's class name. Messages carry `usage_metadata` + a `model_name`, without which every token/cost assertion would pass vacuously on zeros |
 | LLM (`provider=test`, integration/live) | `AutoStructuredFakeChatModel` (§9.3) |
+| Eval harness (`evals/`) | None needed — both evaluators take injected `SupportsSearch`/`SupportsTrustRun` protocols, so they run against scripted fakes. The *committed datasets* are validated by the same tests (unknown `doc_id`, duplicate ids, full label coverage): a typo'd label silently depresses recall forever. Only `src/trustresume/evals/cli.py` builds real dependencies, and it's `omit`-ted from coverage like `poc/` |
 | Streamlit frontend | `streamlit.testing.v1.AppTest` drives the real script; only `requests.Session` is mocked at the `api_client` import site — no browser. `st.cache_resource.clear()` must run between tests (autouse fixture) |
 
 `tests/unit/` mirrors `src/trustresume/`'s package boundaries 1:1;
@@ -720,9 +842,111 @@ mypy src                                    # strict type-check
 
 ---
 
-## 15. Deployment
+## 15. Measuring quality: the offline evaluation harness (`evals/`, ADR-0011)
 
-### 15.1 Local, no credentials
+§14 covers **correctness** — does the code do what it says. This section
+covers **quality** — is the system any good, and did a change improve it.
+Nothing in the runtime pipeline can answer that:
+
+- The quality gate (`Trust >= 90 AND ATS >= 85`) scores one résumé for one
+  user, as product output.
+- `evaluation/scorer.py` computes ATS keyword coverage — again, a number shown
+  to the user about their draft.
+
+Two components could therefore regress silently:
+
+1. **Retrieval.** A regression doesn't announce itself: the writer simply
+   grounds fewer claims, and the draft still reads fine. §7's switch to
+   `RecursiveCharacterTextSplitter` changed chunk boundaries, and until now
+   nothing could measure the effect.
+2. **The Trust Harness** — worse, because it's the project's central claim.
+   The runtime Trust score is computed *from the harness's own verdicts*
+   (`TrustReport.compute_score` averages them), so a harness that classifies
+   everything SUPPORTED produces a perfect score and a completely invisible
+   failure. **The metric cannot see its own blind spot.**
+
+Note the deliberate one-letter distinction: `evaluation/` scores a résumé for
+the user at runtime; `evals/` scores the system for the engineer, offline.
+
+### 15.1 The two suites
+
+```bash
+python -m trustresume.evals --suite retrieval          # no credentials (~10s)
+TRUSTRESUME_LLM_PROVIDER=bedrock python -m trustresume.evals --suite all
+python -m trustresume.evals --suite all --save evals/baselines/latest.json
+```
+
+**Retrieval** — recall@k / precision@k / MRR / hit rate over a labeled corpus
+(`evals/datasets/retrieval_*.jsonl`), ingested through the *real* parse →
+clean → chunk → embed path, since chunking is one of the things under test.
+Chunk hits collapse to document level, because relevance is labeled per
+document. Runs against throwaway in-memory SQLite + an ephemeral Chroma
+collection, never the developer's real stores.
+
+**Trust Harness** — each case pins one claim against known evidence with a
+known correct verdict, scored as multi-class classification (accuracy,
+macro-F1, per-label P/R/F1, confusion matrix). A multi-claim report collapses
+to its *worst* verdict: if the harness split one labeled claim into parts and
+found any part unsupported, the claim as stated isn't supported.
+
+Three measurement choices carry the weight:
+
+- **Macro-F1 next to accuracy.** Labels skew SUPPORTED, so a harness that
+  never says UNSUPPORTED scores ~80% accuracy while failing at its only job.
+- **Too-lenient errors counted separately.** Passing a fabrication reaches the
+  user; flagging a true claim costs one rewrite. One undifferentiated error
+  rate would erase the asymmetry the project is built on.
+- **Unanswerable queries excluded from precision/MRR/hit-rate** (undefined
+  when there's nothing to find — standard IR practice) but kept for recall.
+  Their real signal is reported separately as `unanswerable_results`.
+
+### 15.2 Baseline, and what the first run found
+
+Retrieval (k=8 — `EvidenceRetrievalAgent.DEFAULT_TOP_K`, i.e. the depth a real
+generation retrieves — hybrid + RRF, `BAAI/bge-small-en-v1.5`): **recall 1.000,
+MRR 0.938**, precision 0.156 (expected — most queries have one relevant
+document, so k=8 caps precision at 0.125). Recall 1.000 includes the two cases
+that justify hybrid retrieval's complexity: a document that never says
+"Kubernetes" but describes it (vector's job) and an exact product name the
+embedder treats as interchangeable with competitors (keyword's job).
+
+Trust Harness (Bedrock Claude Opus 4.6, temperature 0, 12 labeled claims):
+**accuracy 0.500, macro-F1 0.489 — and zero too-lenient errors.**
+
+The harness has a **systematic one-notch-strict bias**. All six errors run in
+the same direction, each off by exactly one severity step: true statements
+judged PARTIALLY_SUPPORTED (t2, t3, t11), inflated statements judged
+UNSUPPORTED (t4, t6, t7). `confusion[X][more-lenient-than-X]` is 0 everywhere.
+
+That finding is the harness paying for itself:
+
+- **The direction is the safe one** — UNSUPPORTED recall is 1.000, so no
+  fabrication was passed. Accuracy alone (0.500) reads like a broken verifier;
+  the `dangerous_errors` count is what distinguishes *miscalibrated* from
+  *failing*.
+- **It has a real cost.** t11 claims "Ran 23 incident postmortems over 18
+  months" against evidence saying "ran 23 postmortems over 18 months" — a
+  verbatim restatement, judged PARTIALLY_SUPPORTED. Under-crediting true
+  claims depresses the Trust score, pushing sound drafts back through the
+  rewrite loop and burning LLM calls.
+- **The fix is a prompt change, not code** — tighten what
+  `trust_verification/verifier.py` says SUPPORTED means (a restatement, or a
+  generalization the evidence entails, is fully supported). Re-run the suite
+  before and after; that's what a baseline is for.
+
+None of this was visible from the runtime Trust score, which is computed from
+these very verdicts — a systematically strict harness just looks like "drafts
+that need more rewrites."
+
+Caveats stated plainly: 12 cases, single-annotator labels, at least two
+genuinely debatable (t6, t12). This is a **regression detector**, not a
+certification.
+
+---
+
+## 16. Deployment
+
+### 16.1 Local, no credentials
 
 ```bash
 uv venv --python 3.13 && source .venv/bin/activate
@@ -733,7 +957,7 @@ TRUSTRESUME_LLM_PROVIDER=test uvicorn trustresume.api.server:build_served_app --
 TRUSTRESUME_API_URL=http://localhost:8000 streamlit run src/trustresume/ui/streamlit_app.py
 ```
 
-### 15.2 Docker Compose
+### 16.2 Docker Compose
 
 Two services sharing one image (`Dockerfile`, multi-stage):
 
@@ -763,7 +987,7 @@ docker compose up --build
 drop `trustresume-data` before starting on top of a volume created by an
 older schema version.
 
-### 15.3 CI (`.github/workflows/ci.yml`)
+### 16.3 CI (`.github/workflows/ci.yml`)
 
 On every push to `main` and every PR, across Python 3.11 and 3.13:
 
@@ -779,17 +1003,22 @@ Dependencies always install from the committed `uv.lock`
 (`--locked`, never re-resolved) — the whole point being that local, CI, and
 Docker builds land on byte-identical dependency versions.
 
-### 15.4 Configuration surface (all optional, env-first)
+### 16.4 Configuration surface (all optional, env-first)
 
 | Variable | Meaning | Default |
 |---|---|---|
 | `TRUSTRESUME_LLM_PROVIDER` (or legacy `TRUSTRESUME_LLM`) | `bedrock` / `openai` / `google` / `test` | `bedrock` |
 | `TRUSTRESUME_LLM_MODEL` | model id/name | provider default |
+| `TRUSTRESUME_LLM_TEMPERATURE` | sampling temperature (pinned, ADR-0013) | `0` |
+| `TRUSTRESUME_LLM_<ROLE>_MODEL` / `_TEMPERATURE` | per-role override, `ROLE ∈ {EXTRACTION, WRITER, VERIFIER}` | inherits the base values |
+| `TRUSTRESUME_PRICING` | LLM price table for cost reporting (ADR-0012) | `config/pricing.json` |
 | `TRUSTRESUME_AWS_PROFILE` / `TRUSTRESUME_AWS_REGION` | Bedrock only | `twdc-bedrock-central` / `us-west-2` |
 | `OPENAI_API_KEY` / `GOOGLE_API_KEY` | read by the provider SDK directly | — |
 | `TRUSTRESUME_DB_PATH` | SQLite file path | `trustresume.db` |
 | `TRUSTRESUME_CHROMA_PATH` | Chroma storage dir | `chroma_data` |
+| `TRUSTRESUME_OUTPUT_DIR` | where each run's browsable résumé + evaluation copy is written (empty disables) | `output` |
 | `TRUSTRESUME_API_URL` | (UI only) backend base URL | `http://localhost:8000` |
+| `TRUSTRESUME_USER_ID` | (UI only) prefills the sidebar user id, sent as `X-User-Id` | blank → the demo user |
 
 Resolution precedence for provider/model/key fields specifically: **env var >
 `config/llm.local.json` (gitignored) > `config/llm.json` (committed defaults)
@@ -797,10 +1026,14 @@ Resolution precedence for provider/model/key fields specifically: **env var >
 
 ---
 
-## 16. Where to go deeper
+## 17. Where to go deeper
 
-- Exact rationale for a specific decision → `architecture/decisions/000{1,3}.md`,
-  `0010-hybrid-vector-keyword-retrieval.md`.
+- Exact rationale for a specific decision → `docs/architecture/decisions/`:
+  0001 (Chroma + user isolation), 0003 (LangGraph), 0010 (hybrid retrieval),
+  0011 (eval harness), 0012 (telemetry), 0013 (temperature + role tiering),
+  0014 (per-request identity).
+- How to read the eval numbers, and how to add labeled cases →
+  `evals/README.md`.
 - A guided, narrative first read of the whole codebase (written in Chinese) →
   `docs/code-walkthrough.md`.
 - Command reference, package map table, testing-model table →

@@ -29,6 +29,7 @@ from trustresume.models import (
     EvidenceChunk,
     JobDescription,
     ResumeDraft,
+    RunUsage,
     TrustReport,
 )
 
@@ -562,6 +563,7 @@ class ResumeRepository(_BaseRepository):
         markdown_text: str | None = None,
         rejection_reason: str | None = None,
         improvement_suggestions: str | None = None,
+        usage: RunUsage | None = None,
     ) -> str:
         """Persist an exported draft; return its id.
 
@@ -570,13 +572,20 @@ class ResumeRepository(_BaseRepository):
         time. ``rejection_reason``/``improvement_suggestions`` are only ever
         set for a draft that didn't pass the quality gate — both ``None``
         for a passing draft.
+
+        ``usage`` records what the run consumed (tokens, calls, cost, wall
+        clock). Flattened into columns rather than stored as a JSON blob:
+        "what did resumes cost me last month" should be one ``SUM()``, not a
+        table scan that parses JSON per row. ``None`` leaves every usage
+        column NULL — unmeasured, which is not the same as zero.
         """
         resume_id = self._new_id()
         self._conn.execute(
             "INSERT INTO generated_resumes (id, user_id, job_id, job_title, iteration, "
             "summary, content_json, trust_score, ats_score, passed, pdf_bytes, "
-            "markdown_text, rejection_reason, improvement_suggestions, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "markdown_text, rejection_reason, improvement_suggestions, "
+            "input_tokens, output_tokens, llm_calls, cost_usd, duration_ms, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 resume_id,
                 user_id,
@@ -592,6 +601,11 @@ class ResumeRepository(_BaseRepository):
                 markdown_text,
                 rejection_reason,
                 improvement_suggestions,
+                usage.input_tokens if usage else None,
+                usage.output_tokens if usage else None,
+                usage.llm_calls if usage else None,
+                usage.cost_usd if usage else None,
+                usage.total_duration_ms if usage else None,
                 self._now(),
             ),
         )

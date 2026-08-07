@@ -15,7 +15,9 @@ import pytest
 
 from trustresume.api.model_factory import (
     BEDROCK_DEFAULT_MODEL,
+    DEFAULT_TEMPERATURE,
     LLMConfig,
+    RoleConfig,
     build_model,
 )
 from trustresume.api.test_provider import AutoStructuredFakeChatModel
@@ -30,6 +32,13 @@ _CONFIG_ENV_VARS = (
     "TRUSTRESUME_AWS_PROFILE",
     "TRUSTRESUME_AWS_REGION",
     "TRUSTRESUME_LLM_CONFIG",
+    "TRUSTRESUME_LLM_TEMPERATURE",
+    "TRUSTRESUME_LLM_EXTRACTION_MODEL",
+    "TRUSTRESUME_LLM_WRITER_MODEL",
+    "TRUSTRESUME_LLM_VERIFIER_MODEL",
+    "TRUSTRESUME_LLM_EXTRACTION_TEMPERATURE",
+    "TRUSTRESUME_LLM_WRITER_TEMPERATURE",
+    "TRUSTRESUME_LLM_VERIFIER_TEMPERATURE",
 )
 
 
@@ -132,6 +141,87 @@ def test_buildModel_google_fallsBackToEnvKey(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("GOOGLE_API_KEY", "g-env-not-real")
     model = build_model(LLMConfig(provider="google", model="gemini-1.5-flash"))
     assert model.model == "gemini-1.5-flash"  # type: ignore[attr-defined]
+
+
+# --- temperature + per-role model tiering ---------------------------------
+
+
+def test_temperature_defaultsToZeroForReproducibleScoring() -> None:
+    """Extraction/classification must not vary run to run by default."""
+    assert LLMConfig().temperature == DEFAULT_TEMPERATURE == 0.0
+    assert LLMConfig().temperature_for("writer") == 0.0
+
+
+def test_load_readsTemperatureAndRoleOverridesFromJson(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path / "llm.json",
+        provider="openai",
+        model="gpt-4o",
+        temperature=0.1,
+        roles={
+            "extraction": {"model": "gpt-4o-mini"},
+            "writer": {"temperature": 0.7},
+        },
+    )
+    config = LLMConfig.load(path)
+
+    assert config.temperature == 0.1
+    assert config.model_name("extraction") == "gpt-4o-mini"  # role model override
+    assert config.temperature_for("extraction") == 0.1  # inherits base temperature
+    assert config.model_name("writer") == "gpt-4o"  # inherits base model
+    assert config.temperature_for("writer") == 0.7  # role temperature override
+    assert config.model_name("verifier") == "gpt-4o"  # no entry: all inherited
+
+
+def test_load_roleEnvVarsOverrideFile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    roles = {"writer": {"model": "from-file"}}
+    path = _write(tmp_path / "llm.json", provider="openai", roles=roles)
+    monkeypatch.setenv("TRUSTRESUME_LLM_WRITER_MODEL", "from-env")
+    assert LLMConfig.load(path).model_name("writer") == "from-env"
+
+
+def test_load_unparseableTemperature_fallsBackToDefaultNotCrash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typo in config must not take the whole app down at startup."""
+    monkeypatch.setenv("TRUSTRESUME_LLM_TEMPERATURE", "warm")
+    assert LLMConfig.load(tmp_path / "nope.json").temperature == DEFAULT_TEMPERATURE
+
+
+def test_load_malformedRolesSection_ignoredNotCrash(tmp_path: Path) -> None:
+    path = _write(tmp_path / "llm.json", provider="openai", roles="not-a-mapping")
+    assert LLMConfig.load(path).roles == {}
+
+
+def test_modelName_unknownRole_fallsBackToBaseModel() -> None:
+    config = LLMConfig(provider="openai", model="gpt-4o", roles={"writer": RoleConfig(model="x")})
+    assert config.model_name("reranker") == "gpt-4o"
+
+
+def test_buildModel_openai_passesResolvedRoleModelAndTemperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
+    config = LLMConfig(
+        provider="openai",
+        model="gpt-4o",
+        temperature=0.0,
+        roles={"writer": RoleConfig(model="gpt-4o-mini", temperature=0.7)},
+    )
+    writer = build_model(config, role="writer")
+    verifier = build_model(config, role="verifier")
+
+    assert writer.model_name == "gpt-4o-mini"  # type: ignore[attr-defined]
+    assert writer.temperature == 0.7  # type: ignore[attr-defined]
+    assert verifier.model_name == "gpt-4o"  # type: ignore[attr-defined]
+    assert verifier.temperature == 0.0  # type: ignore[attr-defined]
+
+
+@patch("boto3.Session")
+def test_buildModel_bedrock_pinsTemperatureExplicitly(session_cls: MagicMock) -> None:
+    """Unset temperature would mean 'whatever the provider defaults to today'."""
+    model = build_model(LLMConfig(provider="bedrock", model="claude-x"), role="extraction")
+    assert model.temperature == 0.0  # type: ignore[attr-defined]
 
 
 @patch("boto3.Session")
