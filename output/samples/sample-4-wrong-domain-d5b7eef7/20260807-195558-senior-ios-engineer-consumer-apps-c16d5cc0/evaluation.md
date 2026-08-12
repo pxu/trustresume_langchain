@@ -61,6 +61,11 @@ Where the evidence genuinely supports them, incorporate these target keywords th
 
 ## Cost & latency
 
+<<<<<<<< HEAD:output/samples/sample-4-wrong-domain-d5b7eef7/20260807-225826-senior-ios-engineer-consumer-apps-319b2835/evaluation.md
 - 10 LLM calls · 25,772 tokens (17,702 in / 8,070 out) · $0.8708
 - 96.0s wall clock
 - Slowest step: score_trust (15.8s)
+========
+- 10 LLM calls · 25,898 tokens (17,736 in / 8,162 out)
+- 95.0s wall clock · unknown (no price configured for this model)
+>>>>>>>> origin/main:output/samples/sample-4-wrong-domain-d5b7eef7/20260807-195558-senior-ios-engineer-consumer-apps-c16d5cc0/evaluation.md

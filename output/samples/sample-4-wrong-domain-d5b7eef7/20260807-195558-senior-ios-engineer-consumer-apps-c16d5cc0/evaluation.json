@@ -1,0 +1,251 @@
+{
+  "resume_id": "c16d5cc0dc284c3ebeea52b025f35455",
+  "user_id": "sample-4-wrong-domain",
+  "job_id": null,
+  "iteration": 3,
+  "passed": false,
+  "exhausted": true,
+  "gate": {
+    "min_trust_score": 90.0,
+    "min_ats_score": 85.0,
+    "max_iterations": 3
+  },
+  "trust": {
+    "claims": [
+      {
+        "text": "Senior Backend Engineer with 5 years of experience",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Evidence shows role as Senior Backend Engineer at Northwind Logistics from 2021-2026, which is 5 years."
+      },
+      {
+        "text": "Designing high-throughput, event-driven systems",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Evidence confirms designing an event-driven order pipeline processing 40 million events per day."
+      },
+      {
+        "text": "Leading engineering teams",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Evidence confirms leading a team of five engineers through two performance cycles."
+      },
+      {
+        "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Directly stated in the evidence."
+      },
+      {
+        "text": "Cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Directly stated in the evidence."
+      },
+      {
+        "text": "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that reduced mean build time from 11 minutes to 4 minutes",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Directly stated in the evidence."
+      },
+      {
+        "text": "Wrote Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook still used by the on-call team",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Directly stated in the evidence."
+      },
+      {
+        "text": "Led a team of five engineers through two performance cycles",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451"
+        ],
+        "rationale": "Directly stated in the evidence."
+      },
+      {
+        "text": "Rebuilt on-call rotation reducing pages from six per week to roughly one per week",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451",
+          "b8b201d4d3564052b4c65d0c114ceaca"
+        ],
+        "rationale": "Evidence confirms rebuilding on-call rotation after a quarter averaging six pages a week, with pages dropping to roughly one a week."
+      },
+      {
+        "text": "Introduced Apache Kafka as backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "b8b201d4d3564052b4c65d0c114ceaca"
+        ],
+        "rationale": "Directly stated in the evidence."
+      },
+      {
+        "text": "Languages: Python, Go",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "b8b201d4d3564052b4c65d0c114ceaca"
+        ],
+        "rationale": "Evidence states 'Python and Go day to day.'"
+      },
+      {
+        "text": "Infrastructure: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, Docker, Kubernetes, GitHub Actions",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "0292429796f54a3d979c3b5f29941451",
+          "b8b201d4d3564052b4c65d0c114ceaca"
+        ],
+        "rationale": "AWS services (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, and GitHub Actions are mentioned in the project descriptions. Docker and Kubernetes are confirmed in the evidence ('Docker, Kubernetes in production')."
+      },
+      {
+        "text": "Data & Messaging: Apache Kafka, Avro, PostgreSQL, Redis, Datadog",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "b8b201d4d3564052b4c65d0c114ceaca"
+        ],
+        "rationale": "Kafka and Avro are confirmed via the cross-team data exchange work. PostgreSQL (Postgres), Redis, and Datadog are all mentioned in the evidence."
+      }
+    ],
+    "score": 100.0,
+    "iteration": 3
+  },
+  "ats": {
+    "score": 0.0,
+    "matched_keywords": [],
+    "missing_keywords": [
+      "Swift",
+      "SwiftUI",
+      "UIKit",
+      "Core Data",
+      "AVFoundation",
+      "XCTest",
+      "Metal",
+      "iOS",
+      "memory management",
+      "battery profiling",
+      "video playback",
+      "offline download",
+      "native iOS apps",
+      "App Store",
+      "consumer apps",
+      "ARKit",
+      "Objective-C"
+    ],
+    "notes": null,
+    "iteration": 3
+  },
+  "rejection_reason": "ATS score 0 (needs >= 85).",
+  "improvement_suggestions": "Where the evidence genuinely supports them, incorporate these target keywords the draft is missing: Swift, SwiftUI, UIKit, Core Data, AVFoundation, XCTest, Metal, iOS, memory management, battery profiling, video playback, offline download, native iOS apps, App Store, consumer apps, ARKit, Objective-C",
+  "usage": {
+    "models": [
+      {
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 17736,
+        "output_tokens": 8162,
+        "calls": 10
+      }
+    ],
+    "timings": [
+      {
+        "node": "analyze_job",
+        "duration_ms": 4969.933665997814
+      },
+      {
+        "node": "load_candidate_profile",
+        "duration_ms": 4060.8975830255076
+      },
+      {
+        "node": "retrieve_evidence",
+        "duration_ms": 15.184624993707985
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7244.207292038482
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 15815.772709029261
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.05075003718957305
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.007166992872953415
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7060.190166987013
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 14352.129250008147
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.08895801147446036
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.01387501833960414
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 6920.617041992955
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 15061.478916963097
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.09724998380988836
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.016207981389015913
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 6659.879249986261
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 12833.320041012485
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.10145804844796658
+      }
+    ],
+    "total_duration_ms": 95012.9175420152,
+    "cost_usd": null
+  }
+}
