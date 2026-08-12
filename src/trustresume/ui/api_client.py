@@ -12,7 +12,7 @@ from typing import Any, cast
 
 import requests
 
-DEFAULT_TIMEOUT = 120  # seconds — a generation run can take several LLM calls
+DEFAULT_TIMEOUT = 300  # seconds — a capped-out run (4 drafts, real provider) took ~181s in practice
 #: Mirrors ``api.server.USER_ID_HEADER``; duplicated rather than imported so
 #: the UI package keeps its one-way dependency on the backend (HTTP only, no
 #: Python imports from ``trustresume.api``).
