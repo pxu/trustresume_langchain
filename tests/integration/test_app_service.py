@@ -17,6 +17,7 @@ Harness — ATS Evaluation is deterministic, no LLM call).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -560,3 +561,53 @@ def test_generate_unwritableOutputDir_doesNotFailTheGeneration(tmp_path: Path) -
 
     assert state.resume_id is not None  # persisted despite the failed mirror
     assert app_facade.get_resume(user_id="u1", resume_id=state.resume_id) is not None
+
+
+# --- durable execution wiring (ADR-0015) -----------------------------------
+
+
+def _durable_app(checkpoint_path: str, *call_groups: list[AIMessage]) -> TrustResumeApp:
+    messages = [msg for group in call_groups for msg in group]
+    return TrustResumeApp(
+        connection=connect(":memory:"),
+        chroma_client=chromadb.EphemeralClient(),
+        embedder=FakeEmbeddings(),
+        model=FakeToolCallingChatModel(messages=iter(messages)),
+        chroma_collection_name=f"test-{uuid.uuid4().hex}",
+        checkpoint_path=checkpoint_path,
+    )
+
+
+def test_resumeRun_durableDisabled_returnsNone(app: TrustResumeApp) -> None:
+    """The default app has no checkpointer, so a resume is always "not found"."""
+    assert app.resume_run(user_id="u1", run_id="anything") is None
+
+
+def test_resumeRun_unknownRunId_returnsNone(tmp_path: Path) -> None:
+    app = _durable_app(str(tmp_path / "ckpt.sqlite"))
+    assert app.resume_run(user_id="u1", run_id="never-ran") is None
+
+
+def test_resumeRun_completedRun_persistsAndIsUserScoped(tmp_path: Path) -> None:
+    """A resumed run is persisted like a fresh one, and it's user-scoped:
+    another user's id 404s indistinguishably from an unknown run (ADR-0001)."""
+    app = _durable_app(str(tmp_path / "ckpt.sqlite"), _FULL_GENERATION)
+    app.ensure_user("Ada", user_id="owner")
+    app.add_document(user_id="owner", filename="r.txt", text="Built Python services on AWS.")
+    # Seed a completed, checkpointed run under a known run_id (bypassing
+    # generate() so we control the id the checkpoint is keyed by).
+    asyncio.run(
+        app._orchestrator.run(user_id="owner", job_posting="Senior Python Engineer", run_id="run-1")
+    )
+
+    # A different user cannot resume it.
+    assert app.resume_run(user_id="intruder", run_id="run-1") is None
+
+    # The owner resumes an already-complete run: nothing re-executes (no
+    # further scripted LLM calls are consumed), and the final draft is
+    # persisted just as a fresh generation would be.
+    state = app.resume_run(user_id="owner", run_id="run-1")
+    assert state is not None
+    assert state.user_id == "owner"
+    assert state.resume_id is not None
+    assert app.get_resume(user_id="owner", resume_id=state.resume_id) is not None

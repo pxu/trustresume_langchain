@@ -261,6 +261,88 @@ def test_orchestrator_bothJobAndJobPosting_raisesValueError() -> None:
         run(orch.run(user_id="u1", job_posting="role", job=job))
 
 
+# --- durable execution (ADR-0015) ------------------------------------------
+
+
+class CrashOnceTrustAgent:
+    """Raises on its first invocation, then scores passing.
+
+    Simulates a crash inside ``score_trust`` after the earlier nodes have
+    already been checkpointed — so a resume must recover without re-running
+    job analysis, profile resolution, retrieval, or the writer.
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def run(self, *, draft: ResumeDraft, evidence: EvidenceSet) -> TrustReport:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("boom")
+        claim = VerifiedClaim(
+            text="Knows Python", category=ClaimCategory.SKILL, status=ClaimStatus.SUPPORTED
+        )
+        return TrustReport(claims=[claim], score=95.0, iteration=draft.iteration)
+
+
+def _make_durable(
+    *, checkpoint_path: str, trust_agent: object
+) -> tuple[Orchestrator, FakeJobDescriptionAgent, FakeCandidateProfileService, FakeResumeAgent]:
+    job = FakeJobDescriptionAgent()
+    profile = FakeCandidateProfileService()
+    resume_agent = FakeResumeAgent()
+    orch = Orchestrator(
+        job_description_agent=job,  # type: ignore[arg-type]
+        candidate_profile_service=profile,  # type: ignore[arg-type]
+        retrieval_agent=FakeRetrievalAgent(),  # type: ignore[arg-type]
+        resume_agent=resume_agent,  # type: ignore[arg-type]
+        trust_agent=trust_agent,  # type: ignore[arg-type]
+        evaluation_agent=ScriptedATSAgent([90.0]),  # type: ignore[arg-type]
+        checkpoint_path=checkpoint_path,
+    )
+    return orch, job, profile, resume_agent
+
+
+def test_orchestrator_durableResume_recoversWithoutReRunningCompletedNodes(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    checkpoint = str(tmp_path / "ckpt.sqlite")
+    trust = CrashOnceTrustAgent()
+    orch, job, profile, resume_agent = _make_durable(checkpoint_path=checkpoint, trust_agent=trust)
+
+    # First attempt crashes inside score_trust; the nodes before it have
+    # already been checkpointed.
+    with pytest.raises(RuntimeError, match="boom"):
+        run(orch.run(user_id="u1", job_posting="Python role", run_id="r1"))
+    assert job.calls == 1
+    assert profile.calls == 1
+    assert resume_agent.calls == [None]  # writer ran exactly once
+
+    # Resuming replays the checkpointed nodes rather than re-executing them:
+    # only the failed node (score_trust) runs again.
+    state = run(orch.resume(run_id="r1"))
+    assert state is not None
+    assert state.passed is True
+    assert state.iteration == 0
+    assert len(state.drafts) == 1
+    assert job.calls == 1  # not re-extracted
+    assert profile.calls == 1  # not re-resolved
+    assert resume_agent.calls == [None]  # writer not re-run
+    assert trust.calls == 2  # only the crashed node retried
+
+
+def test_orchestrator_durableResume_unknownRunId_returnsNone(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    checkpoint = str(tmp_path / "ckpt.sqlite")
+    orch, *_ = _make_durable(checkpoint_path=checkpoint, trust_agent=ScriptedTrustAgent([95.0]))
+
+    assert run(orch.resume(run_id="never-ran")) is None
+
+
+def test_orchestrator_resumeWithoutCheckpointPath_raises() -> None:
+    orch, _resume = _make(trust_scores=[95.0], ats_scores=[90.0])
+
+    with pytest.raises(RuntimeError, match="checkpoint_path"):
+        run(orch.resume(run_id="r1"))
+
+
 # --- feedback generation ----------------------------------------------------
 
 

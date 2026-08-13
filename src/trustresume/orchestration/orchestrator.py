@@ -33,7 +33,8 @@ from __future__ import annotations
 import logging
 import operator
 import time
-from collections.abc import Coroutine
+from collections.abc import AsyncIterator, Coroutine
+from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -62,6 +63,16 @@ from .candidate_profile_service import CandidateProfileService
 from .feedback import build_feedback
 
 logger = logging.getLogger(__name__)
+
+
+def _recursion_limit(gate: QualityGate) -> int:
+    """Scale LangGraph's recursion limit with the gate's iteration cap.
+
+    6 one-time + first-generation steps, then 4 steps per rewrite pass, plus a
+    safety margin — so a caller-supplied gate with a higher cap than the
+    default doesn't hit LangGraph's default limit (25) prematurely.
+    """
+    return 6 + 4 * gate.max_iterations + 10
 
 
 # LangGraph's internal working state. Kept private to this module — every
@@ -137,6 +148,7 @@ class Orchestrator:
         resume_agent: ResumeWriterAgent,
         trust_agent: TrustHarnessAgent,
         evaluation_agent: ATSEvaluationAgent,
+        checkpoint_path: str | None = None,
     ) -> None:
         self._job = job_description_agent
         self._candidate_profile = candidate_profile_service
@@ -144,9 +156,20 @@ class Orchestrator:
         self._resume = resume_agent
         self._trust = trust_agent
         self._evaluation = evaluation_agent
-        self._graph = self._build_graph()
+        # Durable execution (ADR-0015), opt-in. ``None`` (the default) keeps
+        # the original behavior exactly: one graph compiled once, no
+        # checkpointer, ``run(run_id=...)`` and ``resume`` unavailable. When a
+        # path is given, each run compiles a fresh graph bound to a saver
+        # scoped to that call's event loop (see ``_compiled``) — the app drives
+        # every generation through its own ``asyncio.run``, so a saver held for
+        # the app's lifetime would be pinned to a dead loop by the second call.
+        self._checkpoint_path = checkpoint_path
+        # The uncompiled builder is kept so a checkpointed run can recompile
+        # against a per-call saver; the no-checkpoint path compiles once here.
+        self._builder = self._build_builder()
+        self._graph = self._builder.compile()
 
-    def _build_graph(self) -> Any:  # CompiledStateGraph — a bare generic under mypy
+    def _build_builder(self) -> Any:  # StateGraph — a bare generic under mypy
         builder = StateGraph(_GraphState)
         builder.add_node("analyze_job", _timed("analyze_job", self._analyze_job))
         builder.add_node(
@@ -168,7 +191,7 @@ class Orchestrator:
             "score_ats", self._route, {"rewrite": "prepare_rewrite", "end": END}
         )
         builder.add_edge("prepare_rewrite", "write_resume")
-        return builder.compile()
+        return builder
 
     # --- nodes --------------------------------------------------------------
 
@@ -283,6 +306,7 @@ class Orchestrator:
         job_id: str | None = None,
         document_ids: list[str] | None = None,
         gate: QualityGate | None = None,
+        run_id: str | None = None,
     ) -> WorkflowState:
         """Generate a resume for ``user_id`` against a job posting.
 
@@ -292,6 +316,12 @@ class Orchestrator:
         given. ``job_id``/``document_ids`` are carried through for job-scoped
         retrieval and persistence but change no control flow.
 
+        ``run_id`` is the LangGraph ``thread_id`` this run's checkpoints are
+        keyed by (ADR-0015). It only has an effect when the orchestrator was
+        built with a ``checkpoint_path``; otherwise it is ignored (there is no
+        checkpointer to write to). Pass the same ``run_id`` to :meth:`resume`
+        to continue a run that crashed part-way.
+
         Returns the full :class:`WorkflowState` — every draft, every score,
         and the final pass/fail — so the caller can inspect the whole run, not
         just the final draft.
@@ -300,7 +330,7 @@ class Orchestrator:
             raise ValueError("exactly one of job_posting or job must be given")
 
         resolved_gate = gate or QualityGate()
-        logger.info("generation run started", extra={"user_id": user_id})
+        logger.info("generation run started", extra={"user_id": user_id, "run_id": run_id})
         initial: _GraphState = {
             "user_id": user_id,
             "job_posting": job_posting or "",
@@ -317,19 +347,100 @@ class Orchestrator:
             "iteration": 0,
             "feedback": None,
         }
-        # Scale the recursion limit with the gate's iteration cap: 6 one-time
-        # + first-generation steps, then 4 steps per rewrite pass, plus a
-        # safety margin — so a caller-supplied gate with a higher cap than the
-        # default doesn't hit LangGraph's default limit (25) prematurely.
-        recursion_limit = 6 + 4 * resolved_gate.max_iterations + 10
-        # One tracker per run, handed to LangGraph as a callback: it propagates
-        # down to every agent's model call, so token accounting needs no
-        # cooperation from (and no coupling to) the agents themselves.
-        with track_usage() as tracker:
-            result = await self._graph.ainvoke(
+        checkpointed = self._checkpoint_path is not None and run_id is not None
+        async with self._compiled(checkpointed=checkpointed) as graph:
+            return await self._invoke(
+                graph,
                 initial,
-                config={"recursion_limit": recursion_limit, "callbacks": [tracker]},
+                run_id=run_id,
+                recursion_limit=_recursion_limit(resolved_gate),
+                user_id=user_id,
             )
+
+    async def resume(self, *, run_id: str) -> WorkflowState | None:
+        """Continue a checkpointed run from its last completed node.
+
+        Requires the orchestrator to have been built with a ``checkpoint_path``
+        (raises ``RuntimeError`` otherwise). Returns ``None`` when no checkpoint
+        exists for ``run_id`` — the run never started, or its checkpoints were
+        pruned/deleted — so the caller can 404 rather than silently start a
+        blank generation. Resuming a run that already reached the end replays
+        no nodes and just returns its final state.
+
+        Caveat: the token/cost ``usage`` on the returned state reflects only
+        the nodes executed *during this resume* — LangGraph checkpoints graph
+        state (drafts, scores, per-node timings), not the ``UsageTracker``'s
+        accumulation, which is per-invocation. Latency ``timings`` are complete
+        (they live in graph state); tokens/cost from before the crash are not
+        re-counted. Documented in ADR-0015 rather than papered over.
+        """
+        if self._checkpoint_path is None:
+            raise RuntimeError("resume requires the orchestrator built with a checkpoint_path")
+        async with self._compiled(checkpointed=True) as graph:
+            config: dict[str, Any] = {"configurable": {"thread_id": run_id}}
+            snapshot = await graph.aget_state(config)
+            if not snapshot.values:
+                logger.info("resume found no checkpoint", extra={"run_id": run_id})
+                return None
+            gate = snapshot.values["gate"]
+            user_id = snapshot.values["user_id"]
+            logger.info("generation run resuming", extra={"user_id": user_id, "run_id": run_id})
+            # ``None`` input tells LangGraph to continue from the checkpoint
+            # rather than re-seed the state from scratch.
+            return await self._invoke(
+                graph,
+                None,
+                run_id=run_id,
+                recursion_limit=_recursion_limit(gate),
+                user_id=user_id,
+            )
+
+    # --- invocation helpers ---------------------------------------------------
+
+    @asynccontextmanager
+    async def _compiled(self, *, checkpointed: bool) -> AsyncIterator[Any]:
+        """Yield a graph to invoke — the cached one, or a per-call checkpointed one.
+
+        A checkpointed graph is compiled fresh against an ``AsyncSqliteSaver``
+        opened for the duration of this call (and thus this event loop), then
+        torn down; the durable state lives in the on-disk SQLite file, so
+        nothing needs to outlive the ``with`` block. The saver import is lazy
+        so the ``durable`` extra is only required when checkpointing is
+        actually used.
+        """
+        if not checkpointed:
+            yield self._graph
+            return
+        assert self._checkpoint_path is not None  # implied by checkpointed=True
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        async with AsyncSqliteSaver.from_conn_string(self._checkpoint_path) as saver:
+            yield self._builder.compile(checkpointer=saver)
+
+    async def _invoke(
+        self,
+        graph: Any,
+        graph_input: _GraphState | None,
+        *,
+        run_id: str | None,
+        recursion_limit: int,
+        user_id: str,
+    ) -> WorkflowState:
+        """Invoke ``graph``, track usage, and convert the result to ``WorkflowState``.
+
+        Shared by :meth:`run` (``graph_input`` is a fresh initial state) and
+        :meth:`resume` (``graph_input`` is ``None``, so LangGraph continues
+        from the thread's checkpoint).
+        """
+        config: dict[str, Any] = {"recursion_limit": recursion_limit}
+        if run_id is not None:
+            config["configurable"] = {"thread_id": run_id}
+        # One tracker per invocation, handed to LangGraph as a callback: it
+        # propagates down to every agent's model call, so token accounting
+        # needs no cooperation from (and no coupling to) the agents themselves.
+        with track_usage() as tracker:
+            config["callbacks"] = [tracker]
+            result = await graph.ainvoke(graph_input, config=config)
         usage = tracker.finalize(timings=result["timings"])
 
         final_trust = result["trust_reports"][-1].score if result["trust_reports"] else None
@@ -338,6 +449,7 @@ class Orchestrator:
             "generation run finished",
             extra={
                 "user_id": user_id,
+                "run_id": run_id,
                 "iterations": result["iteration"],
                 "final_trust_score": final_trust,
                 "final_ats_score": final_ats,

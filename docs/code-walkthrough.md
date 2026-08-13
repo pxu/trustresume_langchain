@@ -142,6 +142,7 @@ async def run(
     job_id: str | None = None,          # 仅用于"这次生成属于哪个 job"的落库标记
     document_ids: list[str] | None = None,  # job 级检索范围（§8.5）
     gate: QualityGate | None = None,
+    run_id: str | None = None,          # 断点续跑用的 thread_id（§15.5，默认关闭时被忽略）
 ) -> WorkflowState:
 ```
 
@@ -793,13 +794,12 @@ Pydantic 对象**——底层那个 `AIMessage`（以及上面的 `usage_metadat
 掉了，**根本到不了 agent 手里**。所以 token 数在调用点上拿不到。
 
 **唯一还能看见原始 message 的地方是 callback**。于是 `telemetry.py` 的 `UsageTracker`
-是个 `BaseCallbackHandler`，由编排器在 `run()` 里挂一次：
+是个 `BaseCallbackHandler`，由 `_invoke`（`run()` 和 `resume()` 共用的调用点，§15.5）挂一次：
 
 ```python
 with track_usage() as tracker:
-    result = await self._graph.ainvoke(
-        initial, config={"recursion_limit": ..., "callbacks": [tracker]}
-    )
+    config["callbacks"] = [tracker]
+    result = await graph.ainvoke(graph_input, config=config)
 usage = tracker.finalize(timings=result["timings"])
 ```
 
@@ -883,6 +883,85 @@ demo 用户（老客户端不受影响）；没见过的 id 首次使用时自�
 > `CurrentUser` 别名在模块 globals 里解析不到，FastAPI 会**悄悄把它降级成"未知的 query
 > 参数"**——于是**每条路由都返回 422**。mypy 和 ruff 都不会报，只有真起服务器才看得见。
 > 这和 §9.3 那个 `extra={"filename": ...}` 的坑是同一类教训。
+
+---
+
+## 15.5 崩溃了不用重付费：断点续跑（ADR-0015）
+
+一次生成要打一打以上的 LLM 调用（提取 + 最多 4 轮改写 × 两次调用）。以前，只要进程在中间
+挂了——某个节点里一个没捕获的异常、OOM、部署重启——**已经跑完、已经真金白银付过费的节点全部
+作废**，下一次尝试从 `analyze_job` 重新开始。这不是假设：`export/artifacts.py` 那个 em dash
+崩 `render_pdf` 的真实事故，就是在**每次 LLM 调用都已经计费之后**把整个生成毁掉的。
+
+ADR-0003 把编排器迁到 LangGraph `StateGraph` 时就提到"checkpoint 是免费送的能力，但暂时没用
+上"——这一节把它打开，但**只作为演示，不作为可靠性需求**：个人项目规模下一次 run 几秒到几十秒，
+崩溃概率本身很低，谈不上非做不可。做这件事纯粹是因为断点续跑是 LangGraph 的招牌能力之一，这个
+port 提到了却一直没真正用过。
+
+### 开关：`checkpoint_path=None` 时什么都不变
+
+`Orchestrator(checkpoint_path=None)`（默认）行为和以前完全一样：`__init__` 里编译一次图，
+没有 checkpointer，`run(run_id=...)` 的 `run_id` 被忽略，`resume` 不可用。和 §14 ADR-0013
+的角色分层模型是同一个"opt-in、默认零影响"套路——已有调用方和测试全部不受影响。
+
+### 为什么 saver 不能常驻
+
+这个 app 每次生成都走自己的 `asyncio.run`（见 `api/app_service.py`）——也就是**每次调用都是
+一个全新的 event loop**。`AsyncSqliteSaver` 持有一条绑定在"打开它时那个 loop"上的 `aiosqlite`
+连接；如果在 `__init__` 里编译一次并常驻，第二次调用时那个 loop 早就死了，saver 直接报错。
+
+所以耐久状态不能靠"常驻对象"，只能靠"落盘的文件"：`_compiled` 是个 `@asynccontextmanager`，
+每次 `run`/`resume` 调用时才 `AsyncSqliteSaver.from_conn_string(...)` 打开连接、临时编译一份
+带 checkpointer 的图，调用结束就随 `async with` 关掉——真正的持久状态活在磁盘上的 SQLite 文件
+里，不需要任何 Python 对象活得比这次调用更久：
+
+```python
+async def _compiled(self, *, checkpointed: bool) -> AsyncIterator[Any]:
+    if not checkpointed:
+        yield self._graph          # 老路径：__init__ 里编译好的、无 checkpointer 的图
+        return
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    async with AsyncSqliteSaver.from_conn_string(self._checkpoint_path) as saver:
+        yield self._builder.compile(checkpointer=saver)
+```
+
+`_build_builder`（原来叫 `_build_graph`，现在改名是因为它现在返回**未编译**的 `StateGraph`
+builder，编译这一步挪到 `_compiled` 里按需做）没有变，图的节点/边定义和 §4 描述的完全一样。
+
+### `run_id` 从哪来，`resume` 怎么找回状态
+
+`run_id` 就是 LangGraph 的 `thread_id`，checkpoint 按它分组存储。`TrustResumeApp.generate` /
+`generate_for_job` 在**调用编排器之前**就用 `uuid4().hex` 铸出一个 `run_id`——必须提前铸，因为
+`resume_id` 要等 `_persist`（跑完之后）才分配，而崩溃续跑恰恰需要一个"崩溃前就已经存在、能扛住
+崩溃"的键。
+
+`Orchestrator.resume(run_id=...)` 用 `graph.aget_state(config)` 读回快照：没有快照
+（`snapshot.values` 为空——从没跑过，或者 checkpoint 被清了）就返回 `None`，不会悄悄开始一次
+空生成。有快照的话，把 `graph_input=None` 传给 `ainvoke`——这是 LangGraph 的约定，`None` 输入
+表示"从 checkpoint 续，别用一个新状态覆盖它"。`run` 和 `resume` 最终都落到同一个 `_invoke`
+（就是上面 §13 那段 `track_usage` 代码），所以 usage 记录、日志、`WorkflowState` 转换全部共用
+一份逻辑，不用维护两套。
+
+> ⚠️ **续跑的 usage 是不完整的，这是设计使然，不是漏洞**：LangGraph checkpoint 的是**图状态**
+> （drafts、trust/ATS 报告、每节点的 `timings`），不是 `UsageTracker` 的 token/cost 累加器——
+> 后者是**每次调用**级别的（ADR-0012），续跑开的是一次新调用。所以续跑后的 `WorkflowState.usage`
+> 只反映**这次续跑期间**跑过的节点；`timings`（延迟）是完整的，因为它活在图状态里；但崩溃之前
+> 已经花的 token/cost 不会被重新计入。写在 `resume` 的 docstring 和 ADR-0015 里，没有藏起来。
+
+### HTTP 面：`POST /api/runs/{run_id}/resume`
+
+`TrustResumeApp.resume_run(user_id, run_id)` 把三种情况——**没开启耐久执行**、**这个 `run_id`
+没有 checkpoint**、**checkpoint 属于别的用户**——统一折叠成一个不可区分的"没找到"，续跑这个新
+入口也不会成为绕过 ADR-0001 隔离的后门（不能靠试 `run_id` 探测别人的生成）。`server.py` 的路由
+三种情况都返回 404。`TRUSTRESUME_CHECKPOINT_PATH` 环境变量控制开关，不设或空字符串就是关闭
+（和 `TRUSTRESUME_OUTPUT_DIR` 一样的"or-`None`"写法）。
+
+**目前的短板**：崩溃后的 `run_id` 只写进结构化日志，HTTP 客户端自己发现不了它——今天的续跑故事
+是"运维从日志里读 `run_id`，再调这个接口"，还不是"客户端自己发起续跑"。要做到真正客户端驱动，
+得让客户端在发起生成时提供自己的 `run_id`/幂等键，是刻意搁置的后续工作，写在这里免得这个功能被
+误当成"已经完工"。
+
+细节见 `docs/architecture/decisions/0015-durable-execution-checkpointing.md`。
 
 ---
 

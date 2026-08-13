@@ -484,6 +484,27 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
             )
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    @api.post("/api/runs/{run_id}/resume", response_model=GenerateResponse)
+    def resume_run(run_id: str, user_id: CurrentUser) -> GenerateResponse:
+        """Resume a crashed generation from its last completed node (ADR-0015).
+
+        404 when durable execution is disabled, when no checkpoint exists for
+        ``run_id``, or when the run belongs to another user — all indistinguishable
+        by design, so a caller can't probe other users' run ids (ADR-0001).
+        """
+        logger.info("resume-run requested", extra={"user_id": user_id, "run_id": run_id})
+        state = app_facade.resume_run(user_id=user_id, run_id=run_id)
+        if state is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        try:
+            return GenerateResponse.from_state(state)
+        except ValueError as exc:  # no scored draft produced
+            logger.exception(
+                "resume-run produced no scored draft",
+                extra={"user_id": user_id, "run_id": run_id},
+            )
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     @api.get("/api/jobs/{job_id}/resumes", response_model=list[ResumeSummary])
     def list_resumes_for_job(job_id: str, user_id: CurrentUser) -> list[ResumeSummary]:
         rows = app_facade.list_resumes_for_job(user_id=user_id, job_id=job_id)
@@ -530,6 +551,9 @@ def build_served_app() -> FastAPI:
     - ``TRUSTRESUME_AWS_PROFILE`` / ``TRUSTRESUME_AWS_REGION`` — Bedrock only.
     - ``TRUSTRESUME_DB_PATH`` — SQLite file path (default ``trustresume.db``).
     - ``TRUSTRESUME_CHROMA_PATH`` — Chroma storage dir (default ``chroma_data``).
+    - ``TRUSTRESUME_CHECKPOINT_PATH`` — SQLite file for durable execution
+      (ADR-0015); unset/empty disables checkpointing (the default). Requires
+      the ``durable`` extra when set.
     - Provider API keys are read from their conventional env vars
       (``OPENAI_API_KEY``, ``GOOGLE_API_KEY``) by the provider SDK.
 
@@ -560,5 +584,7 @@ def build_served_app() -> FastAPI:
             # Empty string disables the on-disk mirror without needing a
             # separate boolean flag.
             output_dir=os.getenv("TRUSTRESUME_OUTPUT_DIR", "output") or None,
+            # Unset/empty leaves durable execution off (same or-None idiom).
+            checkpoint_path=os.getenv("TRUSTRESUME_CHECKPOINT_PATH") or None,
         )
     )

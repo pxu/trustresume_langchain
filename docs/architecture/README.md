@@ -24,6 +24,7 @@ needs to work on this code.
   | 0012 | Per-run token, cost, and latency accounting |
   | 0013 | Pinned sampling temperature; models tiered by agent role |
   | 0014 | Per-request user identity, making ADR-0001 demonstrable |
+  | 0015 | Opt-in durable execution (LangGraph checkpointing), demonstrative |
 
 ## Reading order
 
@@ -34,4 +35,5 @@ tour of the whole codebase.
 
 ADRs 0011–0014 are the "can you tell whether this is working?" layer — read
 them together, and alongside `evals/README.md`, once the pipeline itself makes
-sense.
+sense. ADR-0015 (durable execution) is optional reading: an opt-in,
+demonstrative feature that doesn't affect the default pipeline at all.
