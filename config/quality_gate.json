@@ -1,0 +1,4 @@
+{
+  "$comment": "Default QualityGate.max_iterations for TrustResumeApp.generate()/generate_for_job() when no gate= override is passed. max_iterations counts rewrites AFTER the initial draft, so max_iterations=1 means 2 total drafts (initial + 1 rewrite) — kept low for now while the cost/quality tradeoff of running further rewrites is unvalidated. The quality loop no longer exits early on a pass — it always runs this many drafts, then ships the best-scoring one. Override with TRUSTRESUME_QUALITY_MAX_ITERATIONS or a gitignored quality_gate.local.json. min_trust_score/min_ats_score are not config-driven (yet) — they stay at QualityGate's own defaults (90/85).",
+  "max_iterations": 1
+}

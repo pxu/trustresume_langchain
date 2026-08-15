@@ -63,7 +63,7 @@ from trustresume.storage import (
     init_db,
 )
 
-from .model_factory import LLMConfig, build_model
+from .model_factory import LLMConfig, build_model, load_quality_gate
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,7 @@ class TrustResumeApp:
         chroma_collection_name: str = COLLECTION_NAME,
         output_dir: Path | None = None,
         checkpoint_path: str | None = None,
+        default_gate: QualityGate | None = None,
     ) -> None:
         init_db(connection)
         self._connection = connection
@@ -117,6 +118,12 @@ class TrustResumeApp:
         # and a default would have the offline suite scattering directories.
         # ``build_default_app`` is the one place that sets it.
         self._output_dir = output_dir
+        # ``None`` (the default) falls back to QualityGate's own Pydantic
+        # default (cap 3) — this constructor never reads config/env itself,
+        # matching every other dependency here (fully-built objects in, no
+        # file I/O). ``build_default_app`` is the one place that resolves this
+        # from config/quality_gate.json via model_factory.load_quality_gate.
+        self._default_gate = default_gate or QualityGate()
 
         # Storage (M2)
         self._users = UserRepository(connection)
@@ -389,13 +396,17 @@ class TrustResumeApp:
 
         Returns the whole :class:`WorkflowState` so the caller can surface the
         real Trust/ATS scores and the pass/fail — including for a capped-out
-        draft (ADR-0005). ``gate`` overrides the orchestrator's own default
-        (``QualityGate()``, cap 3) when given.
+        draft (ADR-0005). ``gate`` overrides this app's ``default_gate``
+        (itself config/env-resolved by ``build_default_app`` via
+        ``model_factory.load_quality_gate`` — see ``__init__``) when given.
         """
         run_id = self._new_run_id()
         state = asyncio.run(
             self._orchestrator.run(
-                user_id=user_id, job_posting=job_posting, run_id=run_id, gate=gate
+                user_id=user_id,
+                job_posting=job_posting,
+                run_id=run_id,
+                gate=gate or self._default_gate,
             )
         )
         self._persist(state)
@@ -412,8 +423,9 @@ class TrustResumeApp:
         job-linked, resolved once here via
         ``DocumentRepository.list_eligible_document_ids`` rather than inside
         the orchestrator, which has no ``DocumentRepository`` dependency of
-        its own). ``gate`` overrides the orchestrator's own default
-        (``QualityGate()``, cap 3) when given.
+        its own). ``gate`` overrides this app's ``default_gate`` (itself
+        config/env-resolved by ``build_default_app`` via
+        ``model_factory.load_quality_gate`` — see ``__init__``) when given.
         """
         row = self._jobs.get(user_id=user_id, job_id=job_id)
         if row is None:
@@ -428,7 +440,7 @@ class TrustResumeApp:
                 job_id=job_id,
                 document_ids=document_ids,
                 run_id=run_id,
-                gate=gate,
+                gate=gate or self._default_gate,
             )
         )
         self._persist(state)
@@ -609,6 +621,7 @@ def build_default_app(
     llm_config: LLMConfig | None = None,
     output_dir: str | None = "output",
     checkpoint_path: str | None = None,
+    quality_gate: QualityGate | None = None,
 ) -> TrustResumeApp:
     """Assemble a production app: file-backed stores + fastembed + an LLM.
 
@@ -629,6 +642,13 @@ def build_default_app(
     LangGraph writes per-node checkpoints to, so a crashed generation can be
     resumed via ``TrustResumeApp.resume_run``. ``None`` (the default) leaves
     checkpointing off; the ``durable`` extra is only needed when it is set.
+
+    ``quality_gate`` becomes every generation's default cap on rewrite
+    iterations (a per-call ``generate(gate=...)`` still overrides it). When
+    ``None``, it's resolved from ``config/quality_gate.json`` (env vars win —
+    see :func:`trustresume.api.model_factory.load_quality_gate`) rather than
+    from ``QualityGate``'s own Pydantic default, mirroring how ``llm_config``
+    is resolved from the environment above.
     """
     import chromadb
 
@@ -657,4 +677,5 @@ def build_default_app(
         verifier_model=build_model(config, role="verifier"),
         output_dir=Path(output_dir) if output_dir else None,
         checkpoint_path=checkpoint_path,
+        default_gate=quality_gate or load_quality_gate(),
     )

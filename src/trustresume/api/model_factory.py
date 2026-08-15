@@ -1,9 +1,14 @@
-"""Provider-agnostic LangChain chat model construction.
+"""Provider-agnostic LangChain chat model construction, plus quality-gate config.
 
 Agents take an injected ``langchain_core.language_models.BaseChatModel``
 (``agents/base.py``'s ``ModelInput``); this module builds one from
 ``config/llm.json`` (a gitignored ``config/llm.local.json`` overlays it, env
 vars win over both) so the rest of the app never hard-codes a provider.
+:func:`load_quality_gate` reuses the exact same file+env precedence for
+``QualityGate.max_iterations`` (``config/quality_gate.json``) — a distinct
+concern from the LLM provider, but small enough that it doesn't warrant its
+own module, and this is the one place in the codebase that already knows how
+to layer file/env config.
 
 Milestone M7 (api) — kept alongside ``app_service.py`` since both are part of
 the app's wiring layer, not the agents themselves.
@@ -19,6 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from langchain_core.language_models import BaseChatModel
+from pydantic import ValidationError
+
+from trustresume.models import QualityGate
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +39,10 @@ _KNOWN_PROVIDERS = frozenset({"bedrock", "openai", "google", "test"})
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "llm.json"
 _CONFIG_KEYS = frozenset(
     {"provider", "model", "api_key", "aws_profile", "aws_region", "temperature", "roles"}
+)
+
+DEFAULT_QUALITY_GATE_CONFIG_PATH = (
+    Path(__file__).resolve().parents[3] / "config" / "quality_gate.json"
 )
 
 #: The three jobs an LLM does in this pipeline, as distinct cost/quality
@@ -172,6 +184,64 @@ def _float_or(value: str | None, fallback: float) -> float:
     except ValueError:
         logger.warning("ignoring unparseable temperature %r; using %s", value, fallback)
         return fallback
+
+
+def _int_or(value: str, fallback: int) -> int:
+    """``int(value)``, or ``fallback`` when unparseable — see :func:`_float_or`."""
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning("ignoring unparseable max_iterations %r; using %s", value, fallback)
+        return fallback
+
+
+def load_quality_gate(path: str | Path | None = None) -> QualityGate:
+    """Resolve the default :class:`QualityGate` from config, mirroring :meth:`LLMConfig.load`.
+
+    Only ``max_iterations`` is config/env-driven — ``min_trust_score``/
+    ``min_ats_score`` deliberately stay at :class:`QualityGate`'s own
+    defaults (90/85) for now; this is narrower in scope than ``LLMConfig``'s
+    file format on purpose. Precedence: ``TRUSTRESUME_QUALITY_MAX_ITERATIONS``
+    env var > a gitignored ``quality_gate.local.json`` sibling > ``path``
+    (or ``$TRUSTRESUME_QUALITY_GATE_CONFIG``, or ``config/quality_gate.json``
+    by default) > ``QualityGate``'s own Pydantic default.
+
+    Called by :func:`trustresume.api.app_service.build_default_app` to
+    resolve ``TrustResumeApp``'s ``default_gate`` — a caller passing an
+    explicit ``gate=`` to ``generate()``/``generate_for_job()`` still
+    overrides this per call.
+    """
+    default_max_iterations = QualityGate.model_fields["max_iterations"].default
+    config_path = Path(
+        path or os.getenv("TRUSTRESUME_QUALITY_GATE_CONFIG") or DEFAULT_QUALITY_GATE_CONFIG_PATH
+    )
+    file_value: object = None
+    for candidate in (config_path, config_path.with_name("quality_gate.local.json")):
+        if candidate.is_file():
+            raw = json.loads(candidate.read_text(encoding="utf-8"))
+            if "max_iterations" in raw:
+                file_value = raw["max_iterations"]
+
+    env_value = os.getenv("TRUSTRESUME_QUALITY_MAX_ITERATIONS")
+    if env_value is not None:
+        max_iterations = _int_or(env_value, default_max_iterations)
+    elif file_value is not None:
+        max_iterations = _int_or(str(file_value), default_max_iterations)
+    else:
+        return QualityGate()
+
+    try:
+        return QualityGate(max_iterations=max_iterations)
+    except ValidationError:
+        # Same failure mode as an unparseable value: a config file with
+        # max_iterations=-1 must not crash startup — fall back to the safe
+        # built-in default instead.
+        logger.warning(
+            "ignoring out-of-range max_iterations %r; using %s",
+            max_iterations,
+            default_max_iterations,
+        )
+        return QualityGate()
 
 
 def _parse_roles(raw: object) -> dict[str, RoleConfig]:
