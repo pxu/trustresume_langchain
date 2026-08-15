@@ -37,7 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from trustresume.ingestion import UnsupportedDocumentError
 from trustresume.models import DocumentType, JobDescription, ResumeDraft
 
-from .app_service import TrustResumeApp
+from .app_service import NoEvidenceError, TrustResumeApp
 from .schemas import (
     AddDocumentRequest,
     CreateJobRequest,
@@ -457,9 +457,12 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
     @api.post("/api/generate", response_model=GenerateResponse)
     def generate(req: GenerateRequest, user_id: CurrentUser) -> GenerateResponse:
         logger.info("generate requested", extra={"user_id": user_id})
-        state = app_facade.generate(
-            user_id=user_id, job_posting=req.job_posting, gate=req.to_gate()
-        )
+        try:
+            state = app_facade.generate(
+                user_id=user_id, job_posting=req.job_posting, gate=req.to_gate()
+            )
+        except NoEvidenceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         try:
             return GenerateResponse.from_state(state)
         except ValueError as exc:  # no scored draft produced
@@ -479,9 +482,12 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
         unaffected.
         """
         logger.info("generate-for-job requested", extra={"user_id": user_id, "job_id": job_id})
-        state = app_facade.generate_for_job(
-            user_id=user_id, job_id=job_id, gate=req.to_gate() if req else None
-        )
+        try:
+            state = app_facade.generate_for_job(
+                user_id=user_id, job_id=job_id, gate=req.to_gate() if req else None
+            )
+        except NoEvidenceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if state is None:
             raise HTTPException(status_code=404, detail="job not found")
         try:

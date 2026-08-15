@@ -26,7 +26,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from tests.fakes import FakeEmbeddings, FakeToolCallingChatModel, tool_call_message
-from trustresume.api.app_service import TrustResumeApp, build_default_app
+from trustresume.api.app_service import NoEvidenceError, TrustResumeApp, build_default_app
 from trustresume.models import DocumentType, QualityGate
 from trustresume.storage import connect
 
@@ -291,15 +291,26 @@ def test_persist_noScoredDraft_isNoOp(app: TrustResumeApp) -> None:
 
 
 def test_generate_isolatesUsers(app: TrustResumeApp) -> None:
-    # User u2 has no documents; generation still works but retrieves nothing
-    # of u1's — verifying isolation carries through the full pipeline.
+    # u2's own (irrelevant) document satisfies the has-any-evidence guard;
+    # the point is generation still retrieves nothing of u1's — verifying
+    # isolation carries through the full pipeline.
     app.ensure_user("Ada", user_id="u1")
     app.ensure_user("Bob", user_id="u2")
     app.add_document(user_id="u1", filename="r.txt", text="Secret Python work for u1")
+    app.add_document(user_id="u2", filename="unrelated.txt", text="Bob's own notes.")
 
     state = app.generate(user_id="u2", job_posting="Python role", gate=_ONE_DRAFT_GATE)
     assert state.evidence is not None
-    assert state.evidence.chunks == []  # u2 sees none of u1's evidence
+    # u2 sees only u2's own evidence, never u1's "Secret" document.
+    assert all(chunk.user_id == "u2" for chunk in state.evidence.chunks)
+    assert all("Secret" not in chunk.text for chunk in state.evidence.chunks)
+
+
+def test_generate_noDocuments_raisesNoEvidenceError(app: TrustResumeApp) -> None:
+    app.ensure_user("Ada", user_id="u1")
+
+    with pytest.raises(NoEvidenceError, match="no documents"):
+        app.generate(user_id="u1", job_posting="Python role", gate=_ONE_DRAFT_GATE)
 
 
 # --- job CRUD, job-scoped documents, generate_for_job, resume export -------
@@ -441,6 +452,21 @@ def test_generateForJob_scopesRetrievalAndSkipsReExtraction_unownedReturnsNone()
     assert state.job_id == job_row["id"]
     assert state.resume_id is not None
     assert app.generate_for_job(user_id="u2", job_id=job_row["id"]) is None
+
+
+def test_generateForJob_noEligibleDocuments_raisesNoEvidenceError() -> None:
+    # A generic-pool document belonging to a *different* job doesn't count —
+    # eligibility is generic pool (no job link at all) union this job's links.
+    app = _app_with_scripted_calls([_JOB_DESCRIPTION_CALL, _JOB_DESCRIPTION_CALL])
+    app.ensure_user("Ada", user_id="u1")
+    other_job = app.create_job(user_id="u1", job_posting="Other role")
+    app.upload_document_for_job(
+        user_id="u1", job_id=other_job["id"], filename="r.txt", data=b"Evidence for the other job."
+    )
+    job_row = app.create_job(user_id="u1", job_posting="Senior Python Engineer role")
+
+    with pytest.raises(NoEvidenceError, match="no eligible documents"):
+        app.generate_for_job(user_id="u1", job_id=job_row["id"], gate=_ONE_DRAFT_GATE)
 
 
 def test_getResume_listResumesForJob_ownershipScoped() -> None:

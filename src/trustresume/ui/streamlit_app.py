@@ -162,6 +162,27 @@ def _render_generation_result(result: dict[str, Any]) -> None:
         st.write(", ".join(result["missing_keywords"]))
 
 
+def _has_any_documents(client: TrustResumeClient) -> bool:
+    """Best-effort check for the Generate tab's disabled state.
+
+    Fails open (``True``) on a backend error rather than blocking the whole
+    tab on a fetch that isn't the point of this render — a real problem
+    surfaces naturally when the user actually clicks Generate.
+    """
+    try:
+        return bool(client.list_documents())
+    except requests.RequestException:
+        return True
+
+
+def _has_eligible_documents_for_job(client: TrustResumeClient, *, job_id: str) -> bool:
+    """Same fail-open check as :func:`_has_any_documents`, scoped to one job's eligible pool."""
+    try:
+        return bool(client.list_documents_for_job(job_id=job_id))
+    except requests.RequestException:
+        return True
+
+
 def _render_generate_tab(client: TrustResumeClient) -> None:
     st.subheader("Generate a tailored, evidence-checked resume")
     st.caption("One-off: not persisted. To save the result and reuse the job, use the Jobs tab.")
@@ -177,7 +198,10 @@ def _render_generate_tab(client: TrustResumeClient) -> None:
             "LLM calls for a chance at a better draft, not a guarantee."
         ),
     )
-    if st.button("Generate", type="primary", disabled=not job_posting.strip()):
+    has_documents = _has_any_documents(client)
+    if not has_documents:
+        st.info("Upload at least one document on the Documents tab before generating.")
+    if st.button("Generate", type="primary", disabled=not job_posting.strip() or not has_documents):
         with st.spinner("Running the pipeline — job analysis, retrieval, writing, verification…"):
             try:
                 result = client.generate(
@@ -306,7 +330,13 @@ def _render_jobs_tab(client: TrustResumeClient) -> None:
             "LLM calls for a chance at a better draft, not a guarantee."
         ),
     )
-    if st.button("Generate for this job", type="primary"):
+    has_eligible_documents = _has_eligible_documents_for_job(client, job_id=job_id)
+    if not has_eligible_documents:
+        st.info(
+            "No eligible documents for this job yet — upload one above, or add an "
+            "unlinked document on the Documents tab (the generic pool counts too)."
+        )
+    if st.button("Generate for this job", type="primary", disabled=not has_eligible_documents):
         with st.spinner("Running the pipeline — job analysis, retrieval, writing, verification…"):
             try:
                 result = client.generate_for_job(job_id=job_id, max_iterations=int(max_iterations))

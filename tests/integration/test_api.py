@@ -237,6 +237,7 @@ def test_generate_returnsScoresAndDraft(client: TestClient) -> None:
 
 def test_generate_reportsTokenUsageAndDuration(client: TestClient) -> None:
     """Every run must account for what it consumed, offline provider included."""
+    client.post("/api/documents", json={"filename": "r.txt", "text": "Built Python services."})
     resp = client.post("/api/generate", json={"job_posting": "Senior Python Engineer"})
     assert resp.status_code == 200
 
@@ -256,6 +257,7 @@ def test_generate_reportsTokenUsageAndDuration(client: TestClient) -> None:
 
 
 def test_getResume_exposesPersistedUsage(client: TestClient) -> None:
+    client.post("/api/documents", json={"filename": "r.txt", "text": "Built Python services."})
     generated = client.post("/api/generate", json={"job_posting": "Senior Python Engineer"}).json()
 
     detail = client.get(f"/api/resumes/{generated['resume_id']}").json()
@@ -272,6 +274,13 @@ def test_generate_requiresJobPosting(client: TestClient) -> None:
 def test_generate_whitespaceOnlyJobPosting_rejectedLikeEmpty(client: TestClient) -> None:
     resp = client.post("/api/generate", json={"job_posting": "  \n  "})
     assert resp.status_code == 422
+
+
+def test_generate_noDocumentsIngested_returns422(client: TestClient) -> None:
+    """No documents at all — nothing for the writer to ground a draft in."""
+    resp = client.post("/api/generate", json={"job_posting": "Senior Python Engineer"})
+    assert resp.status_code == 422
+    assert "no documents" in resp.json()["detail"]
 
 
 def test_generate_noScoredDraftProduced_returns500(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -455,6 +464,16 @@ def test_uploadDocumentForJob_linksItAndListDocumentsForJobIncludesIt() -> None:
     assert client.get("/api/jobs/nonexistent/documents").status_code == 404
 
 
+def test_generateForJob_noEligibleDocuments_returns422() -> None:
+    client = _client_with_scripted_calls([_JOB_DESCRIPTION_CALL])
+    job = client.post("/api/jobs", json={"job_posting": "Senior Python Engineer role"}).json()
+
+    resp = client.post(f"/api/jobs/{job['id']}/generate")
+
+    assert resp.status_code == 422
+    assert "no eligible documents" in resp.json()["detail"]
+
+
 def test_generateForJob_persistsAndExposesResumeId_missingJobReturns404() -> None:
     client = _client_with_scripted_calls(
         [_JOB_DESCRIPTION_CALL], _JOB_SCOPED_GENERATION_DEFAULT_GATE
@@ -633,6 +652,11 @@ def test_userIdHeader_search_doesNotLeakAnotherUsersEvidence(client: TestClient)
 
 def test_userIdHeader_othersResume_is404NotReadable() -> None:
     client = _client_with_scripted_calls(_FULL_GENERATION_DEFAULT_GATE)
+    client.post(
+        "/api/documents",
+        json={"filename": "r.txt", "text": "Built Python services."},
+        headers={"X-User-Id": "ada"},
+    )
     generated = client.post(
         "/api/generate",
         json={"job_posting": "Senior Python Engineer"},
