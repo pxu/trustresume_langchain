@@ -110,6 +110,13 @@ class TrustResumeClient:
         resp.raise_for_status()
         return cast(dict[str, Any], resp.json())
 
+    def list_documents_for_job(self, *, job_id: str) -> list[dict[str, Any]]:
+        resp = self._session.get(
+            f"{self.base_url}/api/jobs/{job_id}/documents", timeout=self.timeout
+        )
+        resp.raise_for_status()
+        return cast(list[dict[str, Any]], resp.json())
+
     def generate_for_job(self, *, job_id: str, max_iterations: int | None = None) -> dict[str, Any]:
         """``max_iterations`` overrides the server's config-resolved default for this call only."""
         body = {"max_iterations": max_iterations} if max_iterations is not None else {}

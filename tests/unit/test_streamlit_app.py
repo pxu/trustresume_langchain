@@ -23,6 +23,8 @@ import requests
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+from trustresume.ui import streamlit_app
+
 APP_PATH = "src/trustresume/ui/streamlit_app.py"
 
 
@@ -784,3 +786,108 @@ def test_generateTab_noUsageInResponse_rendersNoCaption(mock_session: MagicMock)
 
     assert not at.exception
     assert not [c for c in at.tabs[1].caption if "LLM calls" in c.value]
+
+
+# --- no-evidence guard: disabled-state helpers ------------------------------
+
+
+def test_hasAnyDocuments_falseWhenEmpty() -> None:
+    client = MagicMock()
+    client.list_documents.return_value = []
+    assert streamlit_app._has_any_documents(client) is False
+
+
+def test_hasAnyDocuments_trueWhenNonEmpty() -> None:
+    client = MagicMock()
+    client.list_documents.return_value = [{"id": "d1"}]
+    assert streamlit_app._has_any_documents(client) is True
+
+
+def test_hasAnyDocuments_failsOpenOnRequestException() -> None:
+    client = MagicMock()
+    client.list_documents.side_effect = requests.RequestException("boom")
+    assert streamlit_app._has_any_documents(client) is True
+
+
+def test_hasEligibleDocumentsForJob_falseWhenEmpty() -> None:
+    client = MagicMock()
+    client.list_documents_for_job.return_value = []
+    assert streamlit_app._has_eligible_documents_for_job(client, job_id="j1") is False
+
+
+def test_hasEligibleDocumentsForJob_trueWhenNonEmpty() -> None:
+    client = MagicMock()
+    client.list_documents_for_job.return_value = [{"id": "d1"}]
+    assert streamlit_app._has_eligible_documents_for_job(client, job_id="j1") is True
+
+
+def test_hasEligibleDocumentsForJob_failsOpenOnRequestException() -> None:
+    client = MagicMock()
+    client.list_documents_for_job.side_effect = requests.RequestException("boom")
+    assert streamlit_app._has_eligible_documents_for_job(client, job_id="j1") is True
+
+
+def test_generateTab_noDocuments_showsUploadHint(mock_session: MagicMock) -> None:
+    """docs_resp defaults to [] in mock_session — no documents ingested yet."""
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    assert any("Upload at least one document" in i.value for i in at.tabs[1].info)
+
+
+def test_generateTab_hasDocuments_noUploadHint(mock_session: MagicMock) -> None:
+    docs_resp = _ok_response([{"id": "d1", "filename": "r.txt", "document_type": "RESUME"}])
+    health_resp = _ok_response({"status": "ok"})
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        return health_resp if "health" in url else docs_resp
+
+    mock_session.get.side_effect = _get
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    assert not any("Upload at least one document" in i.value for i in at.tabs[1].info)
+
+
+def test_jobsTab_noEligibleDocuments_showsUploadHint(mock_session: MagicMock) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    empty_resp = _ok_response([])
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/api/jobs"):
+            return jobs_resp
+        return empty_resp  # /api/jobs/j1/documents and the generic pool are both empty
+
+    mock_session.get.side_effect = _get
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    assert any("No eligible documents for this job" in i.value for i in at.tabs[2].info)
+
+
+def test_jobsTab_hasEligibleDocuments_noUploadHint(mock_session: MagicMock) -> None:
+    jobs_resp = _ok_response([{"id": "j1", "summary": "Senior Python Engineer at Acme"}])
+    health_resp = _ok_response({"status": "ok"})
+    eligible_resp = _ok_response([{"id": "d1", "filename": "r.txt", "document_type": "RESUME"}])
+    empty_resumes_resp = _ok_response([])
+
+    def _get(url: str, **kw: object) -> MagicMock:
+        if "health" in url:
+            return health_resp
+        if url.endswith("/api/jobs"):
+            return jobs_resp
+        if url.endswith("/resumes"):
+            return empty_resumes_resp
+        return eligible_resp  # /api/jobs/j1/documents
+
+    mock_session.get.side_effect = _get
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    assert not any("No eligible documents for this job" in i.value for i in at.tabs[2].info)
