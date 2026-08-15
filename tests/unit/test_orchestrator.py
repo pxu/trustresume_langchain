@@ -124,22 +124,29 @@ def _make(
 # --- orchestrator control flow ---------------------------------------------
 
 
-def test_orchestrator_passesOnFirstTry_noRewrites() -> None:
+def test_orchestrator_passesOnFirstTry_stillRunsToCap() -> None:
+    """No early exit on a pass — the loop always runs to the gate's cap."""
     orch, resume = _make(trust_scores=[95.0], ats_scores=[90.0])
 
-    state = run(orch.run(user_id="u1", job_posting="Python role"))
+    state = run(
+        orch.run(user_id="u1", job_posting="Python role", gate=QualityGate(max_iterations=1))
+    )
 
-    assert state.passed is True
-    assert state.iteration == 0
-    assert len(state.drafts) == 1
-    assert resume.calls == [None]  # writer called once, no feedback
+    assert state.final_passed is True
+    assert state.iteration == 1  # ran the second iteration despite passing on the first
+    assert len(state.drafts) == 2
+    assert resume.calls[0] is None
+    # Second writer call still received feedback, even though iteration 0 passed.
+    assert resume.calls[1] is not None
 
 
 def test_orchestrator_recordsPerNodeTimingsForEveryExecution() -> None:
     """Loop nodes must be timed per iteration, not collapsed into one entry."""
     orch, _ = _make(trust_scores=[80.0, 95.0], ats_scores=[90.0, 90.0])
 
-    state = run(orch.run(user_id="u1", job_posting="Python role"))
+    state = run(
+        orch.run(user_id="u1", job_posting="Python role", gate=QualityGate(max_iterations=1))
+    )
 
     assert state.usage is not None
     nodes = [t.node for t in state.usage.timings]
@@ -166,12 +173,15 @@ def test_orchestrator_noLlmUsageReported_stillReturnsUsageNotNone() -> None:
 
 
 def test_orchestrator_failsThenPasses_oneRewrite() -> None:
-    # iteration 0 fails on trust, iteration 1 passes both.
+    # iteration 0 fails on trust, iteration 1 passes both; capped at 1 rewrite
+    # so the run stops there rather than continuing to the default cap of 3.
     orch, resume = _make(trust_scores=[80.0, 95.0], ats_scores=[90.0, 90.0])
 
-    state = run(orch.run(user_id="u1", job_posting="Python role"))
+    state = run(
+        orch.run(user_id="u1", job_posting="Python role", gate=QualityGate(max_iterations=1))
+    )
 
-    assert state.passed is True
+    assert state.final_passed is True
     assert state.iteration == 1
     assert len(state.drafts) == 2
     # Second writer call received feedback derived from the failing reports.
@@ -184,14 +194,14 @@ def test_orchestrator_failsToCap_stopsAndExportsRealScores() -> None:
 
     state = run(orch.run(user_id="u1", job_posting="Python role", gate=QualityGate()))
 
-    assert state.passed is False
+    assert state.final_passed is False
     assert state.is_exhausted is True
     # Initial + 3 rewrites = 4 drafts (cap is 3 iterations).
     assert state.iteration == 3
     assert len(state.drafts) == 4
-    # Real, un-fudged scores survive on the capped-out draft.
-    assert state.current_trust.score == 10.0  # type: ignore[union-attr]
-    assert state.current_ats.score == 10.0  # type: ignore[union-attr]
+    # Real, un-fudged scores survive on the exported (best-of-the-failures) draft.
+    assert state.final_trust.score == 10.0  # type: ignore[union-attr]
+    assert state.final_ats.score == 10.0  # type: ignore[union-attr]
 
 
 def test_orchestrator_resolvesCandidateProfileOnce_evenAcrossRewrites() -> None:
@@ -205,18 +215,23 @@ def test_orchestrator_resolvesCandidateProfileOnce_evenAcrossRewrites() -> None:
 
 
 def test_orchestrator_respectsCustomGate() -> None:
-    # A lenient gate passes what the default would reject.
+    # A lenient gate passes what the default would reject. max_iterations=1
+    # (the field's floor) keeps this test focused on the threshold override:
+    # the run still does its one mandatory rewrite (no early exit on a pass),
+    # but every iteration scores the same, so the lenient thresholds are what
+    # determine the outcome, not the cap.
     orch, _resume = _make(trust_scores=[70.0], ats_scores=[70.0])
 
     state = run(
         orch.run(
             user_id="u1",
             job_posting="role",
-            gate=QualityGate(min_trust_score=60, min_ats_score=60),
+            gate=QualityGate(min_trust_score=60, min_ats_score=60, max_iterations=1),
         )
     )
-    assert state.passed is True
-    assert state.iteration == 0
+    assert state.final_passed is True
+    assert state.iteration == 1
+    assert len(state.drafts) == 2
 
 
 def test_orchestrator_jobGiven_skipsExtractionAndCarriesJobIdThrough() -> None:
@@ -308,25 +323,32 @@ def test_orchestrator_durableResume_recoversWithoutReRunningCompletedNodes(tmp_p
     trust = CrashOnceTrustAgent()
     orch, job, profile, resume_agent = _make_durable(checkpoint_path=checkpoint, trust_agent=trust)
 
+    # max_iterations=1 (the field's floor) keeps this test's footprint to the
+    # minimum two drafts — the loop no longer exits early on a pass, so there
+    # is no gate config that yields just one draft.
+    gate = QualityGate(max_iterations=1)
+
     # First attempt crashes inside score_trust; the nodes before it have
     # already been checkpointed.
     with pytest.raises(RuntimeError, match="boom"):
-        run(orch.run(user_id="u1", job_posting="Python role", run_id="r1"))
+        run(orch.run(user_id="u1", job_posting="Python role", run_id="r1", gate=gate))
     assert job.calls == 1
     assert profile.calls == 1
     assert resume_agent.calls == [None]  # writer ran exactly once
 
     # Resuming replays the checkpointed nodes rather than re-executing them:
-    # only the failed node (score_trust) runs again.
+    # only the failed node (score_trust) runs again. The loop then continues
+    # through its one mandatory rewrite (no early exit on the resulting pass)
+    # before finishing.
     state = run(orch.resume(run_id="r1"))
     assert state is not None
-    assert state.passed is True
-    assert state.iteration == 0
-    assert len(state.drafts) == 1
+    assert state.final_passed is True
+    assert state.iteration == 1
+    assert len(state.drafts) == 2
     assert job.calls == 1  # not re-extracted
     assert profile.calls == 1  # not re-resolved
-    assert resume_agent.calls == [None]  # writer not re-run
-    assert trust.calls == 2  # only the crashed node retried
+    assert resume_agent.calls[0] is None  # iteration 0's call wasn't re-run
+    assert trust.calls == 3  # crashed once + iteration 0's retry + iteration 1's call
 
 
 def test_orchestrator_durableResume_unknownRunId_returnsNone(tmp_path) -> None:  # type: ignore[no-untyped-def]

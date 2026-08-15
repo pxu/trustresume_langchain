@@ -136,7 +136,7 @@ def _render_generation_result(result: dict[str, Any]) -> None:
     if result["passed"]:
         st.success("Passed the quality gate.")
     elif result["exhausted"]:
-        st.warning("Hit the rewrite cap without passing — showing the last draft anyway.")
+        st.warning("Hit the rewrite cap without passing — showing the best-scoring draft anyway.")
 
     _render_usage(result.get("usage"))
 

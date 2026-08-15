@@ -42,6 +42,7 @@ from trustresume.models import (
     DocumentType,
     EvidenceSet,
     JobDescription,
+    QualityGate,
     TrustReport,
     WorkflowState,
 )
@@ -381,21 +382,28 @@ class TrustResumeApp:
 
     # --- generation --------------------------------------------------------
 
-    def generate(self, *, user_id: str, job_posting: str) -> WorkflowState:
+    def generate(
+        self, *, user_id: str, job_posting: str, gate: QualityGate | None = None
+    ) -> WorkflowState:
         """Run the full pipeline and persist the final draft + its scores.
 
         Returns the whole :class:`WorkflowState` so the caller can surface the
         real Trust/ATS scores and the pass/fail — including for a capped-out
-        draft (ADR-0005).
+        draft (ADR-0005). ``gate`` overrides the orchestrator's own default
+        (``QualityGate()``, cap 3) when given.
         """
         run_id = self._new_run_id()
         state = asyncio.run(
-            self._orchestrator.run(user_id=user_id, job_posting=job_posting, run_id=run_id)
+            self._orchestrator.run(
+                user_id=user_id, job_posting=job_posting, run_id=run_id, gate=gate
+            )
         )
         self._persist(state)
         return state
 
-    def generate_for_job(self, *, user_id: str, job_id: str) -> WorkflowState | None:
+    def generate_for_job(
+        self, *, user_id: str, job_id: str, gate: QualityGate | None = None
+    ) -> WorkflowState | None:
         """Generate against a persisted job; return the result, or ``None`` if unowned.
 
         Re-uses the job's already-extracted ``JobDescription`` (no re-run of
@@ -404,7 +412,8 @@ class TrustResumeApp:
         job-linked, resolved once here via
         ``DocumentRepository.list_eligible_document_ids`` rather than inside
         the orchestrator, which has no ``DocumentRepository`` dependency of
-        its own).
+        its own). ``gate`` overrides the orchestrator's own default
+        (``QualityGate()``, cap 3) when given.
         """
         row = self._jobs.get(user_id=user_id, job_id=job_id)
         if row is None:
@@ -419,6 +428,7 @@ class TrustResumeApp:
                 job_id=job_id,
                 document_ids=document_ids,
                 run_id=run_id,
+                gate=gate,
             )
         )
         self._persist(state)
@@ -466,6 +476,13 @@ class TrustResumeApp:
     def _persist(self, state: WorkflowState) -> None:
         """Save the final draft, its exports, and its evaluation to SQLite.
 
+        "Final" is the best-scoring draft (``state.final_*``), not the last
+        one generated — the orchestrator's quality loop always runs every
+        draft up to the gate's iteration cap (no early exit on a pass), so
+        ``final_*`` picks the best of them: a passing draft always beats a
+        failing one, and among drafts on the same side of that line, higher
+        ATS wins (see :attr:`WorkflowState.final_index`).
+
         Every persisted resume gets rendered PDF/Markdown bytes unconditionally
         — including a run through the legacy raw-``job_posting`` ``generate()``
         path, which previously had no export data to persist at all. A draft
@@ -476,15 +493,15 @@ class TrustResumeApp:
         for a passing draft. Sets ``state.resume_id`` on success so the caller
         can deep-link to the export routes without a second lookup.
         """
-        draft = state.current_draft
-        trust = state.current_trust
-        ats = state.current_ats
+        draft = state.final_draft
+        trust = state.final_trust
+        ats = state.final_ats
         if draft is None or trust is None or ats is None:
             return
 
         rejection_reason: str | None = None
         improvement_suggestions: str | None = None
-        if not state.passed:
+        if not state.final_passed:
             rejection_reason = build_rejection_reason(state.gate, trust, ats)
             improvement_suggestions = build_feedback(trust, ats)
 
@@ -500,7 +517,7 @@ class TrustResumeApp:
             job_title=state.job.title if state.job else None,
             trust_score=trust.score,
             ats_score=ats.score,
-            passed=state.passed,
+            passed=state.final_passed,
             job_id=state.job_id,
             pdf_bytes=pdf_bytes,
             markdown_text=markdown_text,

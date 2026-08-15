@@ -137,10 +137,10 @@ def _iteration_history_markdown(state: WorkflowState) -> str:
     Only worth showing once there was a rewrite: a single-draft run has
     nothing to trend. ``drafts``/``trust_reports``/``ats_reports`` are kept
     parallel by the orchestrator (see ``WorkflowState``), so zipping them by
-    index is safe. The last row is always the one exported — this project
-    always keeps the final iteration rather than picking a better-scoring
-    earlier one, so the table is presented as a trajectory, not as evidence
-    of a best-of selection.
+    index is safe. The exported row is ``state.final_index`` — the loop never
+    stops early on a pass, so it is routinely *not* the last row: it is
+    whichever iteration ranks best by (passed the gate, ATS score), which the
+    table makes auditable.
     """
     if len(state.drafts) <= 1:
         return ""
@@ -149,14 +149,14 @@ def _iteration_history_markdown(state: WorkflowState) -> str:
         "| Iteration | Trust | ATS | Passed |\n",
         "|---|---|---|---|\n",
     ]
-    last = len(state.drafts) - 1
+    exported = state.final_index
     for index in range(len(state.drafts)):
         trust_i = state.trust_reports[index] if index < len(state.trust_reports) else None
         ats_i = state.ats_reports[index] if index < len(state.ats_reports) else None
         passed = trust_i is not None and ats_i is not None and state.gate.passes(trust_i, ats_i)
         trust_str = f"{trust_i.score:.0f}" if trust_i else "—"
         ats_str = f"{ats_i.score:.0f}" if ats_i else "—"
-        marker = " (exported)" if index == last else ""
+        marker = " (exported)" if index == exported else ""
         verdict = "yes" if passed else "no"
         lines.append(f"| {index}{marker} | {trust_str} | {ats_str} | {verdict} |\n")
     return "".join(lines)
@@ -185,7 +185,7 @@ def _evaluation_markdown(
     improvement_suggestions: str | None,
 ) -> str:
     """The reviewer-facing summary: verdict first, then why, then what it cost."""
-    verdict = "PASSED" if state.passed else "DID NOT PASS"
+    verdict = "PASSED" if state.final_passed else "DID NOT PASS"
     gate = state.gate
     job_title = state.job.title if state.job and state.job.title else "(no title extracted)"
     parts = [
@@ -199,7 +199,7 @@ def _evaluation_markdown(
     if state.usage and state.usage.models:
         parts.append(f"- **Model(s):** {', '.join(m.model for m in state.usage.models)}\n")
     parts.append(
-        f"\n## Scores (iteration {state.iteration})\n\n"
+        f"\n## Scores (iteration {state.final_index})\n\n"
         "| Metric | Score | Threshold | Met |\n"
         "|---|---|---|---|\n"
         f"| Trust | {trust.score:.1f} | {gate.min_trust_score:.0f} | "
@@ -209,12 +209,12 @@ def _evaluation_markdown(
     )
     if rejection_reason:
         parts.append(f"\n**Why it failed:** {rejection_reason}\n")
-    if state.is_exhausted and not state.passed:
+    if not state.final_passed:
         parts.append(
-            "\n_Hit the rewrite cap without passing — this is the last draft, "
-            "exported with its real scores rather than discarded (the loop "
-            "keeps the final iteration; it does not search for the best-scoring "
-            "one, unlike the trustresume original)._\n"
+            "\n_None of this run's drafts passed the gate — this is the "
+            "best-scoring one across all iterations (highest ATS, since none "
+            "passed to rank by), exported with its real scores rather than "
+            "discarded._\n"
         )
     parts.append(_iteration_history_markdown(state))
 
@@ -278,10 +278,11 @@ def _evaluation_json(
 
     ``iterations`` additionally carries every draft + report the quality loop
     produced, not just the exported one — ``trust``/``ats`` above are the
-    final iteration's, kept as top-level fields so existing readers of this
-    file don't need to know the history exists. Without this, whether the
-    exported draft was actually the loop's best (rather than just its last)
-    is unrecoverable once the run is over.
+    exported (best-scoring) draft's, kept as top-level fields so existing
+    readers of this file don't need to know the history exists. Keeping the
+    full history is what makes the best-of selection auditable: which
+    iteration was exported (``final_index``) and why it beat the others is
+    recoverable from the per-iteration scores here.
     """
     iterations = [
         {
@@ -305,7 +306,8 @@ def _evaluation_json(
         "user_id": state.user_id,
         "job_id": state.job_id,
         "iteration": state.iteration,
-        "passed": state.passed,
+        "exported_iteration": state.final_index,
+        "passed": state.final_passed,
         "exhausted": state.is_exhausted,
         "gate": state.gate.model_dump(),
         "trust": trust.model_dump(mode="json"),

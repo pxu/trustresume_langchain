@@ -27,8 +27,15 @@ from langchain_core.messages import AIMessage
 
 from tests.fakes import FakeEmbeddings, FakeToolCallingChatModel, tool_call_message
 from trustresume.api.app_service import TrustResumeApp, build_default_app
-from trustresume.models import DocumentType
+from trustresume.models import DocumentType, QualityGate
 from trustresume.storage import connect
+
+# The orchestrator's quality loop no longer exits early on a pass — it always
+# runs to the gate's iteration cap. These fixtures script exactly one round
+# of LLM calls per generate()/generate_for_job() call (see the module
+# docstring above), so every such call in this file must override the gate to
+# max_iterations=0 (generate exactly one draft, no rewrite) to match.
+_ONE_DRAFT_GATE = QualityGate(max_iterations=0)
 
 # Scripted so the pipeline passes the default gate on the first attempt:
 # job.keywords + the draft's content overlap fully (ATS = 100), and the one
@@ -221,7 +228,9 @@ def test_generate_runsPipelineAndPersists(app: TrustResumeApp) -> None:
         document_type=DocumentType.RESUME,
     )
 
-    state = app.generate(user_id="u1", job_posting="Senior Python Engineer with AWS")
+    state = app.generate(
+        user_id="u1", job_posting="Senior Python Engineer with AWS", gate=_ONE_DRAFT_GATE
+    )
 
     # The orchestrator produced a scored draft and the workflow state is whole.
     assert state.job is not None
@@ -244,13 +253,13 @@ def test_generate_reusesCachedCandidateProfileAcrossCalls() -> None:
     app.ensure_user("Ada", user_id="u1")
     app.add_document(user_id="u1", filename="resume.txt", text="Built Python services on AWS.")
 
-    app.generate(user_id="u1", job_posting="Backend Engineer")
+    app.generate(user_id="u1", job_posting="Backend Engineer", gate=_ONE_DRAFT_GATE)
     first = app._candidate_profiles.get("u1")
     assert first is not None and first.stale is False
 
     # A second generation against a different job must not recompute the
     # candidate profile — it's job-independent and nothing was re-ingested.
-    app.generate(user_id="u1", job_posting="Data Engineer")
+    app.generate(user_id="u1", job_posting="Data Engineer", gate=_ONE_DRAFT_GATE)
     second = app._candidate_profiles.get("u1")
     assert second is not None
     assert second.updated_at == first.updated_at
@@ -258,7 +267,7 @@ def test_generate_reusesCachedCandidateProfileAcrossCalls() -> None:
     # Re-ingesting a document flags the cache stale; the next generation
     # recomputes and bumps updated_at.
     app.add_document(user_id="u1", filename="resume2.txt", text="Also led a team of five.")
-    app.generate(user_id="u1", job_posting="Data Engineer")
+    app.generate(user_id="u1", job_posting="Data Engineer", gate=_ONE_DRAFT_GATE)
     third = app._candidate_profiles.get("u1")
     assert third is not None
     assert third.updated_at != first.updated_at
@@ -288,7 +297,7 @@ def test_generate_isolatesUsers(app: TrustResumeApp) -> None:
     app.ensure_user("Bob", user_id="u2")
     app.add_document(user_id="u1", filename="r.txt", text="Secret Python work for u1")
 
-    state = app.generate(user_id="u2", job_posting="Python role")
+    state = app.generate(user_id="u2", job_posting="Python role", gate=_ONE_DRAFT_GATE)
     assert state.evidence is not None
     assert state.evidence.chunks == []  # u2 sees none of u1's evidence
 
@@ -344,7 +353,7 @@ def test_deleteJob_removesJob_pastResumesKeptWithJobIdNulled() -> None:
     job_row = app.create_job(user_id="u1", job_posting="Senior Python Engineer role")
     job_id = job_row["id"]
 
-    state = app.generate_for_job(user_id="u1", job_id=job_id)
+    state = app.generate_for_job(user_id="u1", job_id=job_id, gate=_ONE_DRAFT_GATE)
     assert state is not None
     resume_id = state.resume_id
     assert resume_id is not None
@@ -426,7 +435,7 @@ def test_generateForJob_scopesRetrievalAndSkipsReExtraction_unownedReturnsNone()
         data=b"Built Python services on AWS.",
     )
 
-    state = app.generate_for_job(user_id="u1", job_id=job_row["id"])
+    state = app.generate_for_job(user_id="u1", job_id=job_row["id"], gate=_ONE_DRAFT_GATE)
 
     assert state is not None
     assert state.job_id == job_row["id"]
@@ -439,7 +448,7 @@ def test_getResume_listResumesForJob_ownershipScoped() -> None:
     app.ensure_user("Ada", user_id="u1")
     app.add_document(user_id="u1", filename="resume.txt", text="Built Python services on AWS.")
     job_row = app.create_job(user_id="u1", job_posting="role")
-    state = app.generate_for_job(user_id="u1", job_id=job_row["id"])
+    state = app.generate_for_job(user_id="u1", job_id=job_row["id"], gate=_ONE_DRAFT_GATE)
     assert state is not None
 
     assert app.get_resume(user_id="u1", resume_id=state.resume_id) is not None  # type: ignore[arg-type]
@@ -510,7 +519,9 @@ def test_generate_withOutputDir_writesBrowsableRunDirectory(tmp_path: Path) -> N
     app_facade.ensure_user("Ada", user_id="u1")
     app_facade.add_document(user_id="u1", filename="r.txt", text="Built python services on AWS.")
 
-    state = app_facade.generate(user_id="u1", job_posting="Senior Python Engineer")
+    state = app_facade.generate(
+        user_id="u1", job_posting="Senior Python Engineer", gate=_ONE_DRAFT_GATE
+    )
 
     user_dirs = list(tmp_path.iterdir())
     assert len(user_dirs) == 1 and user_dirs[0].name.startswith("u1-")
@@ -537,7 +548,7 @@ def test_generate_withoutOutputDir_writesNothingToDisk(tmp_path: Path) -> None:
     app_facade.ensure_user("Ada", user_id="u1")
     app_facade.add_document(user_id="u1", filename="r.txt", text="Built python services on AWS.")
 
-    app_facade.generate(user_id="u1", job_posting="Senior Python Engineer")
+    app_facade.generate(user_id="u1", job_posting="Senior Python Engineer", gate=_ONE_DRAFT_GATE)
 
     assert list(tmp_path.iterdir()) == []
 
@@ -557,7 +568,9 @@ def test_generate_unwritableOutputDir_doesNotFailTheGeneration(tmp_path: Path) -
     app_facade.ensure_user("Ada", user_id="u1")
     app_facade.add_document(user_id="u1", filename="r.txt", text="Built python services on AWS.")
 
-    state = app_facade.generate(user_id="u1", job_posting="Senior Python Engineer")
+    state = app_facade.generate(
+        user_id="u1", job_posting="Senior Python Engineer", gate=_ONE_DRAFT_GATE
+    )
 
     assert state.resume_id is not None  # persisted despite the failed mirror
     assert app_facade.get_resume(user_id="u1", resume_id=state.resume_id) is not None
@@ -597,7 +610,12 @@ def test_resumeRun_completedRun_persistsAndIsUserScoped(tmp_path: Path) -> None:
     # Seed a completed, checkpointed run under a known run_id (bypassing
     # generate() so we control the id the checkpoint is keyed by).
     asyncio.run(
-        app._orchestrator.run(user_id="owner", job_posting="Senior Python Engineer", run_id="run-1")
+        app._orchestrator.run(
+            user_id="owner",
+            job_posting="Senior Python Engineer",
+            run_id="run-1",
+            gate=_ONE_DRAFT_GATE,
+        )
     )
 
     # A different user cannot resume it.

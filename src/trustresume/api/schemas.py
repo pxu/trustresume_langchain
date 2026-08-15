@@ -127,8 +127,12 @@ class UsageView(BaseModel):
 class GenerateResponse(BaseModel):
     """The result of a generation run, shaped for the React client.
 
-    Surfaces the *real* scores and the pass/fail even when the draft hit the
-    iteration cap without passing (ADR-0005) — the UI decides how to warn.
+    Surfaces the *real* scores and the pass/fail even when the shipped draft
+    didn't pass — the UI decides how to warn. ``exhausted`` is currently
+    always ``True`` for any real run: the quality loop no longer exits early
+    on a pass, so every completed run has reached the iteration cap by the
+    time this is built. Kept rather than removed since it's still a
+    meaningful concept on hand-built ``WorkflowState``s (e.g. in tests).
     """
 
     draft: ResumeDraft
@@ -145,16 +149,16 @@ class GenerateResponse(BaseModel):
     @classmethod
     def from_state(cls, state: WorkflowState) -> GenerateResponse:
         """Project a completed :class:`WorkflowState` into the API response."""
-        draft = state.current_draft
-        trust = state.current_trust
-        ats = state.current_ats
+        draft = state.final_draft
+        trust = state.final_trust
+        ats = state.final_ats
         if draft is None or trust is None or ats is None:
             raise ValueError("workflow produced no scored draft")
         return cls(
             draft=draft,
             trust_score=trust.score,
             ats_score=ats.score,
-            passed=state.passed,
+            passed=state.final_passed,
             exhausted=state.is_exhausted,
             iterations=state.iteration,
             hallucinations=[
