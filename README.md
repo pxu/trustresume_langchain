@@ -80,7 +80,8 @@ source .venv/bin/activate
 uvicorn trustresume.api.server:build_served_app --factory --port 8000
 ```
 
-Run the Streamlit frontend against either one:
+Run the Streamlit frontend against either one, then open
+[http://localhost:8501](http://localhost:8501):
 
 ```bash
 TRUSTRESUME_API_URL=http://localhost:8000 streamlit run src/trustresume/ui/streamlit_app.py
