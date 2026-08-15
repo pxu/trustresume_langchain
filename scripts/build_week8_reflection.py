@@ -121,7 +121,7 @@ def build() -> Document:  # type: ignore[no-untyped-def]
         "quality are different questions, and a passing test suite answers "
         "neither about a model's actual behavior. My offline evaluation "
         "harness, built to score the system against labeled ground truth, "
-        "independent of any live user, caught something my 474 unit tests "
+        "independent of any live user, caught something my 500 unit tests "
         "never could: the Trust Harness, the one agent this project's "
         "credibility rests on, was miscalibrated. Its prompt said to “be "
         "strict” without ever defining what that meant, so it downgraded "

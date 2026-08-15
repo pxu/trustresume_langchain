@@ -1,0 +1,110 @@
+{
+  "models": [
+    {
+      "model": "global.anthropic.claude-opus-4-6-v1",
+      "input_tokens": 10102,
+      "output_tokens": 4758,
+      "calls": 6
+    }
+  ],
+  "totals": {
+    "llm_requests": 6,
+    "input_tokens": 10102,
+    "output_tokens": 4758,
+    "total_tokens": 14860,
+    "duration_ms": 54916.021,
+    "estimated_cost_usd": 0.50838
+  },
+  "steps": [
+    {
+      "step": "analyze_job",
+      "iteration": 0,
+      "duration_ms": 4750.149,
+      "requests": 1,
+      "input_tokens": 1241,
+      "output_tokens": 435,
+      "estimated_cost_usd": 0.05124
+    },
+    {
+      "step": "load_candidate_profile",
+      "iteration": 0,
+      "duration_ms": 4138.769,
+      "requests": 1,
+      "input_tokens": 1247,
+      "output_tokens": 217,
+      "estimated_cost_usd": 0.03498
+    },
+    {
+      "step": "retrieve_evidence",
+      "iteration": 0,
+      "duration_ms": 10.621,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "write_resume",
+      "iteration": 0,
+      "duration_ms": 7750.929,
+      "requests": 1,
+      "input_tokens": 1572,
+      "output_tokens": 460,
+      "estimated_cost_usd": 0.05808
+    },
+    {
+      "step": "score_trust",
+      "iteration": 0,
+      "duration_ms": 16367.29,
+      "requests": 1,
+      "input_tokens": 2209,
+      "output_tokens": 1709,
+      "estimated_cost_usd": 0.16131
+    },
+    {
+      "step": "score_ats",
+      "iteration": 0,
+      "duration_ms": 0.088,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "prepare_rewrite",
+      "iteration": 0,
+      "duration_ms": 0.015,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "step": "write_resume",
+      "iteration": 1,
+      "duration_ms": 7337.049,
+      "requests": 1,
+      "input_tokens": 1663,
+      "output_tokens": 427,
+      "estimated_cost_usd": 0.05697
+    },
+    {
+      "step": "score_trust",
+      "iteration": 1,
+      "duration_ms": 14551.454,
+      "requests": 1,
+      "input_tokens": 2170,
+      "output_tokens": 1510,
+      "estimated_cost_usd": 0.1458
+    },
+    {
+      "step": "score_ats",
+      "iteration": 1,
+      "duration_ms": 0.065,
+      "requests": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0
+    }
+  ]
+}

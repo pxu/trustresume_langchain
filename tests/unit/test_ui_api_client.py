@@ -91,6 +91,18 @@ def test_generate_postsJobPosting(session_cls: MagicMock) -> None:
 
 
 @patch("trustresume.ui.api_client.requests.Session")
+def test_generate_maxIterations_includedInBody(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    session.post.return_value = _mock_response({"draft": {}, "trust_score": 90.0})
+
+    client = TrustResumeClient("http://api:8000")
+    client.generate(job_posting="Senior Engineer", max_iterations=0)
+
+    _, kwargs = session.post.call_args
+    assert kwargs["json"] == {"job_posting": "Senior Engineer", "max_iterations": 0}
+
+
+@patch("trustresume.ui.api_client.requests.Session")
 def test_listDocuments_getsExpectedUrlAndReturnsBody(session_cls: MagicMock) -> None:
     session = session_cls.return_value
     session.get.return_value = _mock_response([{"id": "d1", "filename": "r.txt"}])
@@ -177,7 +189,20 @@ def test_generateForJob_postsToExpectedUrl(session_cls: MagicMock) -> None:
 
     assert result == {"passed": True}
     session.post.assert_called_once_with(
-        "http://api:8000/api/jobs/j1/generate", timeout=client.timeout
+        "http://api:8000/api/jobs/j1/generate", json={}, timeout=client.timeout
+    )
+
+
+@patch("trustresume.ui.api_client.requests.Session")
+def test_generateForJob_maxIterations_includedInBody(session_cls: MagicMock) -> None:
+    session = session_cls.return_value
+    session.post.return_value = _mock_response({"passed": True})
+
+    client = TrustResumeClient("http://api:8000")
+    client.generate_for_job(job_id="j1", max_iterations=2)
+
+    session.post.assert_called_once_with(
+        "http://api:8000/api/jobs/j1/generate", json={"max_iterations": 2}, timeout=client.timeout
     )
 
 

@@ -35,8 +35,13 @@ Three techniques compose to do this:
    score ATS coverage), each a pure function from typed input to typed
    output, sequenced by one orchestrator.
 3. **Quality loop** — after writing, the draft is scored on two independent
-   axes (Trust, ATS); if it fails either threshold, deterministic feedback is
-   built from *why* it failed and the writer rewrites, up to a hard cap.
+   axes (Trust, ATS); deterministic feedback is built from *why* it failed
+   (or, if it already passed, a generic "keep improving" nudge) and the
+   writer rewrites — always, up to `QualityGate.max_iterations` more times,
+   regardless of whether an earlier draft already passed. The run then ships
+   the best-scoring draft across every iteration (a pass always beats a
+   fail; among drafts on the same side of that line, higher ATS wins) —
+   see §6.2 and ADR-0016.
 
 ---
 
@@ -85,7 +90,7 @@ generation:
 | `TrustReport` | `TrustHarnessAgent` | `claims: list[VerifiedClaim]`, `score: float [0,100]`, `iteration`. `VerifiedClaim`: `text`, `category` (enum: SKILL/EXPERIENCE/CERTIFICATION/ACHIEVEMENT/OTHER), `status` (enum: SUPPORTED/PARTIALLY_SUPPORTED/UNSUPPORTED), `evidence_chunk_ids`, `rationale` |
 | `ATSReport` | `ATSEvaluationAgent` | `score`, `matched_keywords`, `missing_keywords`, `notes`, `iteration` |
 | `WorkflowState` | `Orchestrator.run()` | the whole run — see §6 |
-| `QualityGate` | config | `min_trust_score=90`, `min_ats_score=85`, `max_iterations=3` |
+| `QualityGate` | config | `min_trust_score=90`, `min_ats_score=85`, `max_iterations` (Pydantic default `3`, `ge=0`; the app's actual default is resolved from `config/quality_gate.json` — currently `1` — not this field default; see ADR-0016) |
 
 Two properties worth internalizing because they're load-bearing elsewhere:
 
@@ -287,35 +292,43 @@ every node returning `{"drafts": [draft]}` appends rather than overwrites,
 preserving the full history of the loop. Every other field is last-write-wins
 (LangGraph's default).
 
-### 6.2 The iteration-counting subtlety (read this before touching the loop)
+### 6.2 The iteration-counting subtlety, and no early exit (read this before touching the loop)
 
 This is the single most load-bearing, least intuitive detail in the whole
-codebase. `_route` runs immediately after `score_ats`, **before**
-`prepare_rewrite` increments `iteration`:
+codebase — and it changed under ADR-0016. `_route` runs immediately after
+`score_ats`, **before** `prepare_rewrite` increments `iteration`, and — as of
+ADR-0016 — **ignores whether the draft passed**:
 
 ```python
 def _route(self, state):
-    passed = gate.passes(trust_reports[-1], ats_reports[-1])
+    passed = gate.passes(trust_reports[-1], ats_reports[-1])  # computed, logged, not used to decide
     is_exhausted = state["iteration"] >= gate.max_iterations   # pre-increment value
-    return "end" if (passed or is_exhausted) else "rewrite"
+    return "end" if is_exhausted else "rewrite"
 ```
 
-With the default `max_iterations=3`:
+With `max_iterations=3` (the `QualityGate` Pydantic field default — the
+app's *actual* default is `1`, from `config/quality_gate.json`, see §6.4):
 
 | iteration at `_route` | passed? | `3 >= 3`? | decision |
 |---|---|---|---|
-| 0 (initial draft) | no | no | rewrite → iteration becomes 1 |
-| 1 | no | no | rewrite → 2 |
-| 2 | no | no | rewrite → 3 |
-| 3 | no | **yes** | end |
+| 0 (initial draft) | irrelevant | no | rewrite → iteration becomes 1 |
+| 1 | irrelevant | no | rewrite → 2 |
+| 2 | irrelevant | no | rewrite → 3 |
+| 3 | irrelevant | **yes** | end |
 
-**Result: 4 total drafts (iterations 0, 1, 2, 3), not 3.** Any change to the
+**Result: exactly 4 total drafts (iterations 0, 1, 2, 3), always — not "up to
+4," and not fewer just because an early draft passed.** Any change to the
 loop must keep this exact semantics — it's pinned by
-`test_orchestrator.py::test_orchestrator_failsToCap_stopsAndExportsRealScores`.
-Correspondingly, `run()` scales LangGraph's recursion limit as `6 + 4 *
-max_iterations + 10` rather than leaving LangGraph's default (25), so a
-caller-supplied higher cap doesn't hit a recursion-limit error before it hits
-its own cap.
+`test_orchestrator.py::test_orchestrator_passesOnFirstTry_stillRunsToCap` and
+`test_orchestrator_failsToCap_stopsAndExportsRealScores`. Correspondingly,
+`run()` scales LangGraph's recursion limit as `6 + 4 * max_iterations + 10`
+rather than leaving LangGraph's default (25), so a caller-supplied higher cap
+doesn't hit a recursion-limit error before it hits its own cap — this sizing
+was already computed for the worst case (never passes), so removing the
+early exit needed no change here.
+
+Once every draft is generated, the run doesn't ship "the last one" — it
+ships the *best* one. See §6.3.
 
 ### 6.3 `WorkflowState` — the stable public contract
 
@@ -332,16 +345,50 @@ class WorkflowState:
     trust_reports: list[TrustReport]
     ats_reports: list[ATSReport]
     iteration: int
-    # properties: current_draft/current_trust/current_ats (last in each list),
-    # passed (both scores meet threshold), is_exhausted (iteration >= cap),
-    # should_continue
+    # current_draft/current_trust/current_ats: the LATEST iteration only
+    #   (used by the loop's own routing/history views) — not necessarily
+    #   what gets shipped.
+    # passed: whether the LATEST draft passes the gate. is_exhausted: whether
+    #   the cap has been reached (always True on any completed run now that
+    #   there's no early exit — check `final_passed`, not this, for outcome).
+    # should_continue: True until is_exhausted, unconditionally.
+    #
+    # final_index/final_draft/final_trust/final_ats/final_passed: the draft
+    #   this run SHIPS. Ranked by (passed the gate, ATS score, later
+    #   iteration on ties) — a passing draft always beats a failing one;
+    #   Trust is NOT part of the tiebreak (every passer already cleared the
+    #   Trust threshold, and there's deliberately no Trust-based fallback in
+    #   the all-failed case). See ADR-0016.
 ```
 
 `Orchestrator.run()` builds `_GraphState`, invokes the compiled graph via
 `ainvoke`, and converts the result dict back into `WorkflowState` on return —
 callers never see the graph shape.
 
-### 6.4 Deterministic rewrite feedback (`feedback.py`)
+### 6.4 Where `max_iterations` actually comes from
+
+`QualityGate()`'s own Pydantic default (`3`) is essentially a fallback of
+last resort. In practice, every real generation goes through
+`TrustResumeApp`, which resolves a `default_gate` at construction — used
+whenever a caller doesn't pass `gate=` explicitly:
+
+```
+generate(gate=...)/generate_for_job(gate=...) explicit arg
+  → TrustResumeApp._default_gate (constructor param)
+    → build_default_app()'s quality_gate= arg, or:
+      → model_factory.load_quality_gate(): env TRUSTRESUME_QUALITY_MAX_ITERATIONS
+        > config/quality_gate.local.json (gitignored)
+        > config/quality_gate.json (committed default: max_iterations=1)
+        > QualityGate()'s Pydantic default (3)
+```
+
+`/api/generate` and `/api/jobs/{job_id}/generate` (via optional
+`max_iterations` on `GenerateRequest`/`GenerateForJobRequest`) and the
+Streamlit "Rewrite attempts after the first draft" control all reach this at
+the outermost, per-call layer. The committed default is deliberately `1`
+(two total drafts), not the Pydantic default of `3` — see ADR-0016 for why.
+
+### 6.5 Deterministic rewrite feedback (`feedback.py`)
 
 `build_feedback(trust, ats) -> str` is plain string assembly, not another LLM
 call:
@@ -351,10 +398,14 @@ call:
 2. Partially-supported claims (soften).
 3. Missing keywords (incorporate, only where evidence genuinely supports
    them).
-4. If none of the above fired (gate failed on aggregate score alone), a
-   generic "aim for Trust X, ATS Y" fallback.
+4. If none of the above fired — either the gate failed on aggregate score
+   alone, or (since ADR-0016) the draft actually *passed* but the loop keeps
+   rewriting anyway — a generic "aim for Trust X, ATS Y" fallback. Called on
+   a passing draft, this is a genuinely vague instruction; whether that
+   rewrite reliably improves ATS over the draft it might replace is
+   unvalidated (see ADR-0016's empirical note).
 
-### 6.5 `CandidateProfileService` — why "Service" not "Agent"
+### 6.6 `CandidateProfileService` — why "Service" not "Agent"
 
 Wraps `CandidateProfileAgent` with **cache-check + document-assembly** logic
 that is itself deterministic (`get_or_refresh`): return the cached profile if
@@ -482,17 +533,22 @@ Responsibilities, roughly grouped:
   `list_documents_for_job` (generic pool + job-linked documents).
 - **Ad-hoc retrieval** — `search_evidence(user_id, query, limit)` — the same
   `HybridRetriever` a generation uses internally, exposed standalone.
-- **Generation** — `generate(user_id, job_posting)` (legacy, raw string) and
-  `generate_for_job(user_id, job_id)` (reuses the persisted `JobDescription`,
-  scopes retrieval to that job's eligible documents). Both call
-  `Orchestrator.run` then `self._persist(state)`.
-- **`_persist`** — writes the final draft + PDF/Markdown export bytes +
+- **Generation** — `generate(user_id, job_posting, gate=None)` (legacy, raw
+  string) and `generate_for_job(user_id, job_id, gate=None)` (reuses the
+  persisted `JobDescription`, scopes retrieval to that job's eligible
+  documents). Both call `Orchestrator.run` — passing `gate or
+  self._default_gate`, not `gate` directly, so an omitted `gate` still
+  resolves through this app's config/env-driven default (§6.4) rather than
+  `Orchestrator`'s own Pydantic default — then `self._persist(state)`.
+- **`_persist`** — writes the *shipped* draft (`state.final_draft`, not
+  `state.current_draft` — see §6.3/ADR-0016) + PDF/Markdown export bytes +
   Trust/ATS scores to `generated_resumes`/`evaluations`, unconditionally
-  (even a capped-out, failing draft gets persisted with its real scores —
-  ADR-0005). A failing draft additionally gets `rejection_reason`
+  (even a run where no draft passed gets persisted with its real scores —
+  originally ADR-0005, now also ADR-0016 for *which* draft "the final one"
+  means). A failing shipped draft additionally gets `rejection_reason`
   (`orchestration/rejection.py`'s `build_rejection_reason`) and
-  `improvement_suggestions` (the same `build_feedback` output one more
-  rewrite would have used).
+  `improvement_suggestions` (the same `build_feedback` output the next
+  rewrite, had there been one, would have used).
 
 ### 9.2 `model_factory.py` — provider-agnostic LLM construction
 
@@ -599,9 +655,14 @@ buffering an unbounded body.
 Wire DTOs (`schemas.py`) are intentionally distinct from `models/` — e.g.
 `GenerateResponse.from_state(state: WorkflowState)` projects the internal
 state into a flatter shape (`draft`, `trust_score`, `ats_score`, `passed`,
-`exhausted`, `iterations`, `hallucinations: list[ClaimView]`,
-`missing_keywords`, `resume_id`, `usage`) so the domain model can evolve
-without silently changing the public API contract. `UsageView` flattens
+`iterations`, `hallucinations: list[ClaimView]`, `missing_keywords`,
+`resume_id`, `usage`) so the domain model can evolve without silently
+changing the public API contract — all from `state.final_*`, not
+`state.current_*` (ADR-0016). No `exhausted` field: since the loop never
+exits early (§6.2), it would always be `True` and carry no information;
+check `passed` instead. `GenerateRequest` and the job-scoped
+`GenerateForJobRequest` both take an optional `max_iterations` to override
+this app's default gate for one call — see §6.4. `UsageView` flattens
 `RunUsage` (§12.2) to scalars — a client showing "this took 12s and cost
 $0.04" shouldn't have to sum arrays, while the per-model and per-node
 breakdown stays available server-side to logs and the eval harness.
@@ -713,9 +774,12 @@ not `filename`. Regression test:
 
 ### 12.2 Token, cost, and latency accounting (`telemetry.py`, ADR-0012)
 
-One generation makes **5–9+ sequential LLM calls** (one per LLM-backed agent,
-times up to four quality-loop iterations), so "what did that cost, and where
-did the time go" isn't answerable from any single call.
+One generation makes **5+ sequential LLM calls** (one per LLM-backed agent,
+times exactly `max_iterations + 1` quality-loop iterations — always that
+many now, not "up to," and with the committed `config/quality_gate.json`
+default of `max_iterations=1` that's 2 iterations, not 4 — see §6.4), so
+"what did that cost, and where did the time go" isn't answerable from any
+single call.
 
 The obstacle is specific: every agent calls
 `model.with_structured_output(Schema)`, whose result is the *parsed Pydantic
@@ -773,22 +837,26 @@ Assumes documents are already ingested.
 1. JobDescriptionAgent.run(posting)              → JobDescription    (once)
 2. CandidateProfileService.get_or_refresh(uid)    → CandidateProfile  (once; usually a cache hit)
 3. EvidenceRetrievalAgent.run(uid, job)            → EvidenceSet       (once; hybrid, user-scoped)
-   ┌─── quality loop: ≤ 4 passes total (initial + up to 3 rewrites) ──────────┐
+   ┌─── quality loop: exactly max_iterations+1 passes, always (ADR-0016) ────┐
 4. ResumeWriterAgent.run(job, evidence, feedback?) → ResumeDraft
 5. TrustHarnessAgent.run(draft, evidence)          → TrustReport   (LLM classifies, code scores)
 6. ATSEvaluationAgent.run(draft, job)               → ATSReport    (deterministic coverage)
-   ├─ Trust ≥ 90 AND ATS ≥ 85 → PASS, stop
-   ├─ iteration == 3 already → CAPPED, stop (persist anyway, with real scores)
+   ├─ iteration == max_iterations already → CAP REACHED, stop (Trust≥90/ATS≥85 is
+   │  NOT checked here — passing no longer stops the loop)
    └─ else → build_feedback(trust, ats) → prepare_rewrite (iteration += 1) → back to step 4
-   └────────────────────────────────────────────────────────────────────────┘
-7. TrustResumeApp._persist(state): write final draft + PDF/Markdown export +
-   scores + run usage (tokens/calls/cost/duration) to SQLite; if failing,
-   also rejection_reason + improvement_suggestions. Then mirror the run to
-   output/<user_id>/<timestamp>-<job-slug>-<id>/ (resume.md, resume.pdf,
-   evaluation.md, evaluation.json, job.md) — best effort: an OSError there is
-   logged and swallowed, since the database already has everything
-8. WorkflowState → GenerateResponse (real scores, flagged hallucinations,
-   missing keywords, resume_id, usage)
+   └───────────────────────────────────────────────────────────────────────────┘
+   Once every draft is in: pick final_index — the highest-ATS draft among
+   those that passed Trust≥90/ATS≥85, or (if none passed) the highest-ATS
+   draft overall. That's the one steps 7-8 use, not "the last one."
+7. TrustResumeApp._persist(state): write the shipped draft (state.final_draft)
+   + PDF/Markdown export + its scores + run usage (tokens/calls/cost/duration)
+   to SQLite; if it didn't pass, also rejection_reason + improvement_suggestions.
+   Then mirror the run to output/<user_id>/<timestamp>-<job-slug>-<id>/
+   (resume.md, resume.pdf, evaluation.md, evaluation.json, job.md) — best
+   effort: an OSError there is logged and swallowed, since the database
+   already has everything
+8. WorkflowState → GenerateResponse (final_* scores, flagged hallucinations,
+   missing keywords, resume_id, usage — no exhausted field, see §9.4)
 ```
 
 Throughout steps 1-6 a single `UsageTracker` is attached as a LangGraph

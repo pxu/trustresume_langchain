@@ -164,7 +164,6 @@ def test_fullFlow_ingestThenGenerate(base_url: str) -> None:
         "trust_score",
         "ats_score",
         "passed",
-        "exhausted",
         "iterations",
         "hallucinations",
         "missing_keywords",

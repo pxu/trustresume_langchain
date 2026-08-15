@@ -71,10 +71,14 @@ class TrustResumeClient:
         resp.raise_for_status()
         return cast(dict[str, Any], resp.json())
 
-    def generate(self, *, job_posting: str) -> dict[str, Any]:
+    def generate(self, *, job_posting: str, max_iterations: int | None = None) -> dict[str, Any]:
+        """``max_iterations`` overrides the server's config-resolved default for this call only."""
+        body: dict[str, Any] = {"job_posting": job_posting}
+        if max_iterations is not None:
+            body["max_iterations"] = max_iterations
         resp = self._session.post(
             f"{self.base_url}/api/generate",
-            json={"job_posting": job_posting},
+            json=body,
             timeout=self.timeout,
         )
         resp.raise_for_status()
@@ -106,9 +110,11 @@ class TrustResumeClient:
         resp.raise_for_status()
         return cast(dict[str, Any], resp.json())
 
-    def generate_for_job(self, *, job_id: str) -> dict[str, Any]:
+    def generate_for_job(self, *, job_id: str, max_iterations: int | None = None) -> dict[str, Any]:
+        """``max_iterations`` overrides the server's config-resolved default for this call only."""
+        body = {"max_iterations": max_iterations} if max_iterations is not None else {}
         resp = self._session.post(
-            f"{self.base_url}/api/jobs/{job_id}/generate", timeout=self.timeout
+            f"{self.base_url}/api/jobs/{job_id}/generate", json=body, timeout=self.timeout
         )
         resp.raise_for_status()
         return cast(dict[str, Any], resp.json())

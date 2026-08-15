@@ -218,7 +218,6 @@ def test_generateTab_success_showsScoresAndDraft(mock_session: MagicMock) -> Non
             "trust_score": 95.0,
             "ats_score": 100.0,
             "passed": True,
-            "exhausted": False,
             "iterations": 0,
             "hallucinations": [],
             "missing_keywords": [],
@@ -238,7 +237,7 @@ def test_generateTab_success_showsScoresAndDraft(mock_session: MagicMock) -> Non
     assert any("Python" in m.value for m in at.tabs[1].markdown)
 
 
-def test_generateTab_exhaustedWithoutPassing_showsWarningAndHallucinations(
+def test_generateTab_didNotPass_showsWarningAndHallucinations(
     mock_session: MagicMock,
 ) -> None:
     mock_session.post.return_value = _ok_response(
@@ -247,7 +246,6 @@ def test_generateTab_exhaustedWithoutPassing_showsWarningAndHallucinations(
             "trust_score": 0.0,
             "ats_score": 100.0,
             "passed": False,
-            "exhausted": True,
             "iterations": 3,
             "hallucinations": [{"text": "Knows Kubernetes", "category": "SKILL"}],
             "missing_keywords": ["terraform"],
@@ -261,7 +259,7 @@ def test_generateTab_exhaustedWithoutPassing_showsWarningAndHallucinations(
     gen_tab.button[0].click().run()
 
     assert not at.exception
-    assert "rewrite cap" in at.tabs[1].warning[0].value
+    assert "Did not pass" in at.tabs[1].warning[0].value
     assert any("Kubernetes" in m.value for m in at.tabs[1].markdown)
     assert "terraform" in at.tabs[1].markdown[-1].value
 
@@ -565,7 +563,6 @@ def test_jobsTab_generateForJob_success_rendersResult(mock_session: MagicMock) -
             "trust_score": 95.0,
             "ats_score": 90.0,
             "passed": True,
-            "exhausted": False,
             "iterations": 0,
             "hallucinations": [],
             "missing_keywords": [],
@@ -708,7 +705,6 @@ def _generation_with_usage(usage: dict[str, object] | None) -> dict[str, object]
         "trust_score": 95.0,
         "ats_score": 100.0,
         "passed": True,
-        "exhausted": False,
         "iterations": 0,
         "hallucinations": [],
         "missing_keywords": [],

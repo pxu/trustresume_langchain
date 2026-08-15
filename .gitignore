@@ -24,6 +24,9 @@ chroma_data/
 # --- Local LLM config overlay (may hold an API key — never commit) ---
 config/llm.local.json
 
+# --- Local quality-gate config overlay ---
+config/quality_gate.local.json
+
 # --- Tests / tooling ---
 .pytest_cache/
 .mypy_cache/

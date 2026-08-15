@@ -124,7 +124,7 @@ a real generation, not CI.
 | `evals/` | **Engineering logic**: scores the *system* against labeled ground truth, offline (ADR-0011). Retrieval metrics (recall@k/MRR) + Trust Harness classification accuracy, datasets in repo-root `evals/datasets/*.jsonl`, run via `python -m trustresume.evals`. Everything but `cli.py` is dependency-injected and unit-tested offline. |
 | `telemetry.py` | `UsageTracker` (a LangChain callback capturing tokens/calls per model) + config-driven pricing → `RunUsage` (ADR-0012). A callback is the only place the raw `AIMessage` is still visible, since `with_structured_output` consumes it. |
 | `export/` | `render_markdown` / `render_pdf` — pure `ResumeDraft` → bytes/str renderers, no dependency beyond `models` (+ `fpdf2` for PDF). `artifacts.py`'s `write_run_artifacts` additionally mirrors each run to a browsable directory (`output/<user_id>/<ts>-<job-slug>-<id>/` with `resume.md`/`resume.pdf`/`evaluation.md`/`evaluation.json`/`job.md`) — a convenience view, never a source of truth: `_persist` swallows `OSError` so a full disk can't fail a generation. `render_pdf` uses fpdf2's built-in Helvetica core font, which only encodes **Latin-1** — and `_persist` renders inline, so an unencodable character used to raise and destroy a whole generation *after* every LLM call was paid for. A real Bedrock run hit this on an **em dash**; curly quotes and ellipses do it too, and models emit all three constantly. `_to_latin1` now transliterates typographic punctuation to ASCII and degrades anything else to `?` with a warning, never raising. Scripts with no ASCII equivalent (CJK, Cyrillic) still render as `?` — fixing that means bundling a Unicode TTF. `render_markdown` is lossless and remains the faithful export. |
-| `api/` | `TrustResumeApp` facade (documents · jobs CRUD · job-scoped upload/generate/list · resumes + exports · ad-hoc `search_evidence`), `model_factory.py` (provider-agnostic `LLMConfig`/`build_model`, temperature + role tiering), `test_provider.py` (`AutoStructuredFakeChatModel`), FastAPI `server.py` (same resource groups under `/api/...`, plus `/api/ping` and `/api/health`; every user-scoped route takes `CurrentUser`, resolved from `X-User-Id` — ADR-0014), wire DTOs in `schemas.py`. |
+| `api/` | `TrustResumeApp` facade (documents · jobs CRUD · job-scoped upload/generate/list · resumes + exports · ad-hoc `search_evidence`), `model_factory.py` (provider-agnostic `LLMConfig`/`build_model`, temperature + role tiering, and `load_quality_gate` — the quality gate's config/env loader, same precedence as `LLMConfig.load`, unrelated to LLM provider selection but small enough to share the module — ADR-0016), `test_provider.py` (`AutoStructuredFakeChatModel`), FastAPI `server.py` (same resource groups under `/api/...`, plus `/api/ping` and `/api/health`; every user-scoped route takes `CurrentUser`, resolved from `X-User-Id` — ADR-0014), wire DTOs in `schemas.py`. |
 | `ui/` | Streamlit frontend (`streamlit_app.py`, four tabs: Documents · Generate · Jobs · Search) — a thin REST client (`api_client.py`'s `TrustResumeClient`) over the FastAPI backend; no imports from `trustresume.api`/`orchestration`/etc., so the dependency points one way (UI → HTTP → backend) and `streamlit` stays an optional (`ui`) extra. |
 | `poc/` | Standalone LLM smoke test (`llm_smoke_test.py`), not part of the app; needs the `providers` extra for non-Bedrock; excluded from the coverage gate (see Testing model). |
 | `logging_config.py` | Stdlib `logging` + a JSON `Formatter`; `configure_logging()` is called once by `server.py`'s `build_served_app` (never by library code, so importing anything else stays side-effect-free). |
@@ -148,10 +148,38 @@ TrustHarnessAgent → ATSEvaluationAgent`, plus a sixth, cached
   retrieval and persistence but change no control flow. `run` is `async`
   (it `ainvoke`s the graph); `TrustResumeApp` wraps it in `asyncio.run`.
   The quality-loop iteration counting is subtle
-  and load-bearing: `max_iterations=3` (the default `QualityGate`) yields
-  **4** total drafts (iterations 0-3), not 3 — the conditional edge checks
+  and load-bearing: `max_iterations=N` (the gate's cap) yields **N+1**
+  total drafts (iterations 0..N), not N — the conditional edge checks
   `iteration >= max_iterations` *before* `prepare_rewrite` increments it.
   See ADR-0003 and `test_orchestrator.py::test_orchestrator_failsToCap_stopsAndExportsRealScores`.
+- **The quality loop never exits early on a pass** (ADR-0016, a deliberate
+  deviation from the *original* repo's ADR-0005) — `_route` only checks
+  `iteration >= max_iterations`, not `gate.passes(...)`, so every run
+  generates every draft up to the cap regardless of whether an early one
+  already passed. `WorkflowState.final_index`/`final_draft`/`final_trust`/
+  `final_ats`/`final_passed` (`models/workflow.py`) pick which draft ships:
+  a passing draft always beats a failing one, and among drafts on the same
+  side of that line, higher **ATS** wins (Trust is deliberately *not* part
+  of the tiebreak — every passing draft already cleared the Trust
+  threshold, and in the all-failed case there is no Trust-based fallback).
+  `current_draft`/`current_trust`/`current_ats`/`passed`/`is_exhausted`
+  still exist and reflect only the *latest* iteration (what the loop's own
+  routing reasons about); every consumer — persistence, `GenerateResponse`,
+  the exported run artifacts, the Streamlit UI — reads `final_*` instead.
+  `GenerateResponse.exhausted` and the exported `evaluation.json`'s
+  `"exhausted"` key were removed: both were always `True` for any
+  completed run under this design, so they carried no information.
+  `QualityGate.max_iterations`'s floor was relaxed from 1 to 0 (0 = one
+  draft, no rewrite) and is now config/env-driven rather than hard-coded —
+  `config/quality_gate.json` (committed default `1`, i.e. 2 total drafts,
+  kept low pending more real-provider validation — see ADR-0016), loaded by
+  `model_factory.load_quality_gate()` with the exact same precedence
+  `LLMConfig.load()` uses (env > `quality_gate.local.json` > the committed
+  file > the Pydantic default). `TrustResumeApp` resolves this once as
+  `default_gate`; a per-call `gate=` to `generate()`/`generate_for_job()`,
+  or `max_iterations` on `POST /api/generate` /
+  `POST /api/jobs/{job_id}/generate`, or the Streamlit "Rewrite attempts
+  after the first draft" control, all override it for one call only.
 - **Agents use `chat_model.with_structured_output(Schema)`**
   (`agents/base.py`'s `ModelInput = BaseChatModel`), not a pydantic-ai
   `Agent`. Every agent constructor now *requires* its model — LangChain has
@@ -324,7 +352,7 @@ Read `docs/architecture/high-level-design.md` and the ADRs under
 codebase (data flow, why each design decision, suggested reading order).
 
 **ADR numbering is split across two repos** — `docs/architecture/decisions/` holds
-ADR-0001, 0003, 0010, and 0011–0014 (this port's own new/changed decisions).
+ADR-0001, 0003, 0010, and 0011–0016 (this port's own new/changed decisions).
 Docstrings here also cite ADR-0002 and ADR-0004…0009; those are the
 **original** repo's ADRs, which carry over unchanged and were deliberately not
 restated (see `docs/architecture/README.md`). Don't go looking for a missing file,

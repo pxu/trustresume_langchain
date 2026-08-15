@@ -135,8 +135,11 @@ def _render_generation_result(result: dict[str, Any]) -> None:
 
     if result["passed"]:
         st.success("Passed the quality gate.")
-    elif result["exhausted"]:
-        st.warning("Hit the rewrite cap without passing — showing the last draft anyway.")
+    else:
+        # The quality loop always runs every draft to the iteration cap (no
+        # early exit on a pass), so a failing result here already reflects
+        # the best-scoring draft across every iteration, not just the last.
+        st.warning("Did not pass the quality gate — showing the best-scoring draft anyway.")
 
     _render_usage(result.get("usage"))
 
@@ -163,10 +166,23 @@ def _render_generate_tab(client: TrustResumeClient) -> None:
     st.subheader("Generate a tailored, evidence-checked resume")
     st.caption("One-off: not persisted. To save the result and reuse the job, use the Jobs tab.")
     job_posting = st.text_area("Job posting", height=200, placeholder="Paste the job posting…")
+    max_iterations = st.number_input(
+        "Rewrite attempts after the first draft",
+        min_value=0,
+        max_value=10,
+        value=1,
+        help=(
+            "The quality loop always runs this many rewrites (no early exit "
+            "on a pass) and ships the best-scoring draft. Higher costs more "
+            "LLM calls for a chance at a better draft, not a guarantee."
+        ),
+    )
     if st.button("Generate", type="primary", disabled=not job_posting.strip()):
         with st.spinner("Running the pipeline — job analysis, retrieval, writing, verification…"):
             try:
-                result = client.generate(job_posting=job_posting)
+                result = client.generate(
+                    job_posting=job_posting, max_iterations=int(max_iterations)
+                )
             except requests.HTTPError as exc:
                 st.error(f"Generation failed: {_error_detail(exc)}")
                 return
@@ -278,10 +294,22 @@ def _render_jobs_tab(client: TrustResumeClient) -> None:
 
     st.divider()
 
+    max_iterations = st.number_input(
+        "Rewrite attempts after the first draft",
+        min_value=0,
+        max_value=10,
+        value=1,
+        key=f"job_max_iterations_{job_id}",
+        help=(
+            "The quality loop always runs this many rewrites (no early exit "
+            "on a pass) and ships the best-scoring draft. Higher costs more "
+            "LLM calls for a chance at a better draft, not a guarantee."
+        ),
+    )
     if st.button("Generate for this job", type="primary"):
         with st.spinner("Running the pipeline — job analysis, retrieval, writing, verification…"):
             try:
-                result = client.generate_for_job(job_id=job_id)
+                result = client.generate_for_job(job_id=job_id, max_iterations=int(max_iterations))
             except requests.HTTPError as exc:
                 st.error(f"Generation failed: {_error_detail(exc)}")
                 return

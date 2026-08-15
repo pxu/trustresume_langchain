@@ -242,9 +242,10 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
             "This is retrieval-augmented generation (RAG).",
             "A writer agent drafts the resume from that evidence, but a "
             "second, independent agent then checks every claim against it.",
-            "A resume only ships if it clears both a Trust gate and an "
-            "ATS keyword-coverage gate; if it doesn't, the system rewrites "
-            "and tries again, up to three times.",
+            "A resume only ships once it's scored against a Trust gate and "
+            "an ATS keyword-coverage gate; the system always rewrites at "
+            "least once more, pass or fail, then keeps whichever draft "
+            "actually scored best.",
             "The core design bet: the system would rather fail a candidate "
             "than lie for them. We'll see that proven with a real example "
             "later.",
@@ -255,10 +256,12 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
         "evidence. Second, the key idea: generation and verification are "
         "separate agents. The writer never grades its own homework. An "
         "independent Trust Harness checks every claim against the "
-        "evidence, and a resume only ships once it clears a Trust gate "
-        "and an ATS gate; otherwise the system rewrites, up to three "
-        "times. The bet this project is built on: it should rather fail "
-        "a candidate than lie for them. I'll show a real example later.",
+        "evidence, scored against a Trust gate and an ATS gate, and the "
+        "system always rewrites at least once more, whether or not the "
+        "draft already cleared both gates, then ships whichever draft "
+        "actually scored best. The bet this project is built on: it "
+        "should rather fail a candidate than lie for them. I'll show a "
+        "real example later.",
     )
 
     # --- 4. Architecture diagram -------------------------------------------
@@ -274,12 +277,15 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
         "exact product name. Those feed a loop: the Resume Writer drafts, "
         "the Trust Harness scores every claim as supported, partially "
         "supported, or unsupported, and ATS Evaluation scores keyword "
-        "coverage. If both clear the bar, we're done; if not, the system "
-        "builds specific feedback from what failed and tries again, up to "
-        "three rewrites. A sixth agent, a cached Candidate Profile, feeds "
-        "the writer without being recomputed every time. This all runs as "
-        "a graph, LangGraph, which makes the loop and the stopping "
-        "condition explicit and testable, not buried in ad hoc code.",
+        "coverage. The system builds specific feedback from whatever's "
+        "weakest and tries again, always, for a configurable number of "
+        "rewrites, whether or not an earlier draft already cleared both "
+        "gates, then keeps whichever draft actually scored best rather "
+        "than whichever one happened to pass first. A sixth agent, a "
+        "cached Candidate Profile, feeds the writer without being "
+        "recomputed every time. This all runs as a graph, LangGraph, "
+        "which makes the loop and the stopping condition explicit and "
+        "testable, not buried in ad hoc code.",
     )
 
     # --- 5. Tech stack / design decisions ----------------------------------
@@ -319,7 +325,7 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
         prs,
         "How We Know It Works: Measuring, Not Assuming",
         [
-            "An automated test suite (474 tests, 99.4% coverage) checks "
+            "An automated test suite (500 tests, 99.2% coverage) checks "
             "correctness on every change, offline, with no live model "
             "needed.",
             "A separate offline evaluation harness checks quality: does "
@@ -334,7 +340,7 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
             "model, not a stand-in.",
         ],
         "How do we know this works, rather than just hoping it does? Two "
-        "layers. First, a 474-test automated suite at 99.4 percent "
+        "layers. First, a 500-test automated suite at 99.2 percent "
         "coverage, checking correctness offline on every change. But "
         "correctness isn't quality, so there's a second, separate "
         "evaluation harness scoring the system against labeled ground "
@@ -372,24 +378,27 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
         "The Proof: It Would Rather Fail Than Lie",
         ["Scenario", "Result", "Trust", "ATS", "What happened"],
         [
-            ["1. Strong match", "PASS", "94/90", "90/85", "Real overlap; passed on the first draft"],
-            ["2. Partial match", "FAIL", "94/90", "53/85", "Honest gaps: evidence has no domain specifics to invent"],
-            ["3. Inflation pressure", "FAIL", "92/90", "50/85", "Writer drifted toward overstatement; harness caught it"],
+            ["1. Strong match", "PASS", "93/90", "95/85", "Real overlap; second draft passed too, but scored lower - kept the first"],
+            ["2. Partial match", "FAIL", "81/90", "63/85", "Honest gaps: evidence has no domain specifics to invent"],
+            ["3. Inflation pressure", "FAIL", "83/90", "42/85", "Writer drifted toward overstatement; harness caught it"],
             ["4. Wrong domain", "FAIL", "100/90", "0/85", "Writer refused to invent experience; every claim true"],
         ],
         "This is the slide I most want you to remember. Same candidate, "
-        "four job postings, run against a real production model. "
-        "Scenario one is a genuine match: it passes cleanly. Scenario four "
-        "matters most: an iOS posting for a backend candidate with zero "
-        "iOS experience. The writer refused to invent any. Trust score: "
-        "a perfect 100, because every claim was true. ATS score: zero, "
-        "because the resume matches no required keyword. Trust 100, ATS "
-        "0, same résumé. That's not a bug. That's the entire product "
-        "thesis, visible in two numbers. And scenario three shows the "
-        "harness earning its keep under pressure: asked for scope beyond "
-        "the evidence, the writer drifted toward exaggeration, and "
-        "verification caught every one of those claims before anyone saw "
-        "them.",
+        "four job postings, run against a real production model, each "
+        "drafted twice since the loop no longer stops the moment a draft "
+        "passes. Scenario one is a genuine match: the first draft already "
+        "passed, the second draft passed too but scored lower on ATS, and "
+        "the system correctly kept the first one instead of whatever ran "
+        "last. Scenario four matters most: an iOS posting for a backend "
+        "candidate with zero iOS experience. The writer refused to invent "
+        "any. Trust score: a perfect 100, because every claim was true. "
+        "ATS score: zero, because the resume matches no required keyword. "
+        "Trust 100, ATS 0, same résumé. That's not a bug. That's the "
+        "entire product thesis, visible in two numbers. And scenario "
+        "three shows the harness earning its keep under pressure: asked "
+        "for scope beyond the evidence, the writer drifted toward "
+        "exaggeration, and verification caught every one of those claims "
+        "before anyone saw them.",
     )
 
     # --- 9. Quality & cost --------------------------------------------------
@@ -397,14 +406,14 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
         prs,
         "Quality Engineering Behind the Scenes",
         [
-            "474 automated tests, 99.4% coverage, enforced on every code "
+            "500 automated tests, 99.2% coverage, enforced on every code "
             "change via continuous integration.",
             "Every generation is measured: tokens, latency, and dollar "
             "cost, broken down per step, so there's no more guessing what "
             "a run costs.",
-            "Real-world cost: roughly $0.32 to $1.07 per résumé, across "
-            "four to ten model calls depending on how many rewrites it "
-            "takes.",
+            "Real-world cost: roughly $0.51 to $0.60 per résumé, six "
+            "model calls every time - now constant, since the rewrite "
+            "count is a config setting, not luck.",
             "Several of the most important bugs only showed up when the "
             "real system ran end to end, not in a unit test, which is "
             "why we kept real, live testing in the process, not just fast "
@@ -412,10 +421,10 @@ def build(tmpdir: Path) -> Presentation:  # type: ignore[no-untyped-def]
         ],
         "A quick word on the engineering behind this, because it's what "
         "makes the last slide's numbers trustworthy rather than lucky. "
-        "474 automated tests, over 99 percent coverage, enforced on every "
+        "500 automated tests, over 99 percent coverage, enforced on every "
         "change through continuous integration. Every generation is also "
         "instrumented: tokens, time, and dollar cost per step, which in "
-        "practice runs about 32 cents to just over a dollar per résumé. "
+        "practice runs about 50 to 60 cents per résumé. "
         "And I'll be candid: several of the most important bugs, like a "
         "real model's output crashing the PDF export, or a cost-reporting "
         "gap that silently hid Bedrock's real cost, only showed up running "

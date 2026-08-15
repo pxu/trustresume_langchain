@@ -12,12 +12,17 @@ The flow, once per generation:
     analyze_job -> load_candidate_profile -> retrieve_evidence -> write_resume
     -> score_trust -> score_ats -> (conditional: rewrite or end)
 
-then the quality loop (ADR-0005): while the draft fails the gate
-(Trust >= 90 AND ATS >= 85) and we're under the iteration cap, build specific
-feedback and re-run write_resume -> score_trust -> score_ats. Job analysis,
-candidate-profile resolution, and evidence retrieval happen once — the job
-and the candidate's evidence don't change between rewrites, only the draft
-does.
+then the quality loop: unlike ADR-0005's original design, this does **not**
+stop on the first passing draft. It always runs write_resume -> score_trust
+-> score_ats -> prepare_rewrite up to the gate's iteration cap
+(``QualityGate.max_iterations``), building specific feedback each time, so a
+run explores multiple drafts even when an early one already passed. The
+caller then ships the best of them, ranked by (passed the gate, ATS score) —
+see ``WorkflowState.final_index``: a passing draft always beats a failing
+one, and among drafts on the same side of that line the higher ATS wins,
+tie-broken by the later iteration. Job analysis, candidate-profile resolution,
+and evidence retrieval happen once — the job and the candidate's evidence
+don't change between rewrites, only the draft does.
 
 ``Orchestrator``'s constructor and ``run()`` signature are identical to the
 original: every other layer (``api/app_service.py``) depends on the public
@@ -272,17 +277,24 @@ class Orchestrator:
     def _route(self, state: _GraphState) -> Literal["rewrite", "end"]:
         """Mirrors ``WorkflowState.should_continue`` exactly.
 
+        Deliberately ignores ``passed`` for the decision — no early exit on a
+        pass. Every run explores drafts up to ``gate.max_iterations``
+        regardless of whether an earlier one already passed, so the caller
+        can ship the best-ATS passing draft (``WorkflowState.final_index``)
+        rather than whichever one happened to pass first. ``passed`` is still
+        computed and logged, purely for observability.
+
         Called right after ``score_ats``, so ``iteration`` here is still the
         iteration of the draft that was just scored (the increment happens in
         ``_prepare_rewrite``, only on the "rewrite" branch) — the same
         pre-increment value the original's ``is_exhausted`` check reads. With
-        the default gate (``max_iterations=3``) this yields up to 4 total
-        drafts (iterations 0-3), not 3.
+        the default gate (``max_iterations=3``) this yields exactly 4 total
+        drafts (iterations 0-3), always — not "up to 4".
         """
         gate = state["gate"]
         passed = gate.passes(state["trust_reports"][-1], state["ats_reports"][-1])
         is_exhausted = state["iteration"] >= gate.max_iterations
-        decision: Literal["rewrite", "end"] = "end" if (passed or is_exhausted) else "rewrite"
+        decision: Literal["rewrite", "end"] = "end" if is_exhausted else "rewrite"
         logger.info(
             "quality gate routed",
             extra={

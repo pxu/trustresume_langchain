@@ -300,7 +300,8 @@ def diagram_orchestrator_graph():
         color="#2f8f4f",
         connectionstyle="arc3,rad=-0.15",
     )
-    ax.text(11.55, 2.7, 'passed\nOR\niter ≥ 3', fontsize=8, color="#2f8f4f", ha="left")
+    ax.text(11.55, 2.85, "iter ≥ 3", fontsize=8, color="#2f8f4f", ha="left")
+    ax.text(11.35, 2.4, "(ships best draft\nby final_index, not\njust the last one)", fontsize=7, color="#2f8f4f", ha="left", style="italic")
 
     rewrite_x, rewrite_y = 8.4, 1.6
     box(
@@ -314,7 +315,7 @@ def diagram_orchestrator_graph():
         fontsize=8.7,
     )
     arrow(ax, (9.3, y - h / 2), (rewrite_x + 0.3, rewrite_y + 0.4), color=RED, connectionstyle="arc3,rad=0.15")
-    ax.text(9.9, 2.55, "else: rewrite", fontsize=8, color=RED, ha="left")
+    ax.text(9.9, 2.55, "else: rewrite\n(always — even\nif already passed)", fontsize=8, color=RED, ha="left")
     arrow(
         ax,
         (rewrite_x - 1.0, rewrite_y),
@@ -327,8 +328,8 @@ def diagram_orchestrator_graph():
     ax.text(
         6.0,
         0.15,
-        "_route() reads `iteration` BEFORE prepare_rewrite increments it — default max_iterations=3 "
-        "⇒ iterations 0,1,2,3 all run ⇒ 4 total drafts, not 3.",
+        "_route() reads `iteration` BEFORE prepare_rewrite increments it, and (ADR-0016) no longer checks "
+        "`passed` — default max_iterations=3 ⇒ iterations 0,1,2,3 all run, always, ⇒ exactly 4 total drafts.",
         fontsize=9,
         ha="center",
         color=NAVY,
@@ -359,7 +360,7 @@ def diagram_generation_sequence():
         ("4", "ResumeWriterAgent.run(job, evidence, feedback?)", "→ ResumeDraft", "loop", AMBER_LIGHT, AMBER),
         ("5", "TrustHarnessAgent.run(draft, evidence)", "→ TrustReport (LLM classifies, code scores)", "loop", AMBER_LIGHT, AMBER),
         ("6", "ATSEvaluationAgent.run(draft, job)", "→ ATSReport (deterministic coverage)", "loop", AMBER_LIGHT, AMBER),
-        ("7", "TrustResumeApp._persist(state)", "→ SQLite: draft + PDF/MD export + scores", "once", TEAL_LIGHT, TEAL),
+        ("7", "TrustResumeApp._persist(state)", "→ SQLite: best draft (final_index) + PDF/MD export + scores", "once", TEAL_LIGHT, TEAL),
         ("8", "WorkflowState → GenerateResponse", "real scores + flagged claims + missing keywords", "once", TEAL_LIGHT, TEAL),
     ]
 
@@ -388,7 +389,7 @@ def diagram_generation_sequence():
     ax.text(
         bracket_x + 0.35,
         (loop_top + loop_bot) / 2,
-        "quality\nloop\n≤ 4\npasses",
+        "quality\nloop\nexactly 4\npasses,\nalways",
         fontsize=8.5,
         color=AMBER,
         ha="left",
@@ -398,9 +399,9 @@ def diagram_generation_sequence():
     ax.text(
         4.6,
         top - 7 * row_h - 1.05,
-        "Pass gate: Trust ≥ 90 AND ATS ≥ 85  →  stop, PASS.\n"
-        "Otherwise, at iteration 3 already  →  stop, CAPPED (still persisted with real scores).\n"
-        "Otherwise  →  build_feedback(trust, ats)  →  back to step 4.",
+        "At iteration 3 already  →  stop (ADR-0016: passing does NOT stop the loop early).\n"
+        "Otherwise  →  build_feedback(trust, ats)  →  back to step 4, regardless of pass/fail.\n"
+        "Once stopped: ship the best-scoring draft (passed > failed, then higher ATS) — not just the last one.",
         fontsize=9,
         ha="center",
         va="top",

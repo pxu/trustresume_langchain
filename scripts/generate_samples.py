@@ -169,19 +169,24 @@ SCENARIOS = [
 
 
 def _summarize(name: str, expectation: str, state: WorkflowState) -> None:
-    """Print the outcome the way the artifacts render it."""
-    trust = state.current_trust
-    ats = state.current_ats
+    """Print the outcome the way the artifacts render it.
+
+    Reads ``final_*`` (the draft this run actually ships), not ``current_*``
+    (the latest iteration) — the quality loop no longer stops on the first
+    pass, so the two can differ (ADR-0016).
+    """
+    trust = state.final_trust
+    ats = state.final_ats
     if trust is None or ats is None:
         print(f"  {name}: produced no scored draft", file=sys.stderr)
         return
 
-    verdict = "PASSED" if state.passed else "DID NOT PASS"
+    verdict = "PASSED" if state.final_passed else "DID NOT PASS"
     print(f"\n  [{name}] {expectation}")
     print(f"    result      {verdict}")
     print(f"    trust       {trust.score:.0f} / {state.gate.min_trust_score:.0f}")
     print(f"    ats         {ats.score:.0f} / {state.gate.min_ats_score:.0f}")
-    print(f"    drafts      {state.iteration + 1} (cap {state.gate.max_iterations + 1})")
+    print(f"    drafts      {len(state.drafts)} (cap {state.gate.max_iterations + 1})")
     if trust.claims:
         by_status: dict[str, int] = {}
         for claim in trust.claims:

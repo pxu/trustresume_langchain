@@ -29,6 +29,20 @@ from .test_app_service import (
     _TRUST_CALL,
 )
 
+# The orchestrator's quality loop no longer exits early on a pass — under the
+# default gate (max_iterations=3) every generate() always makes the full 4
+# drafts (iterations 0-3). Job Description and Candidate Profile still run
+# once each; Resume Writer + Trust Harness repeat once per draft (ATS
+# Evaluation is deterministic, no LLM call). None of these tests can pass a
+# gate override over HTTP, so their scripted fixtures are inflated to match
+# instead.
+_REWRITE_ROUND = [_RESUME_DRAFT_CALL, _TRUST_CALL]
+_FULL_GENERATION_DEFAULT_GATE = [
+    _JOB_DESCRIPTION_CALL,
+    _CANDIDATE_PROFILE_CALL,
+] + _REWRITE_ROUND * 4
+_JOB_SCOPED_GENERATION_DEFAULT_GATE = [_CANDIDATE_PROFILE_CALL] + _REWRITE_ROUND * 4
+
 
 @pytest.fixture
 def client() -> TestClient:
@@ -36,7 +50,7 @@ def client() -> TestClient:
         connection=connect(":memory:"),
         chroma_client=chromadb.EphemeralClient(),
         embedder=FakeEmbeddings(),
-        model=FakeToolCallingChatModel(messages=iter(_FULL_GENERATION)),
+        model=FakeToolCallingChatModel(messages=iter(_FULL_GENERATION_DEFAULT_GATE)),
         # Unique collection name per test — see the note on
         # TrustResumeApp.__init__'s chroma_collection_name parameter.
         chroma_collection_name=f"test-{uuid.uuid4().hex}",
@@ -276,7 +290,9 @@ def test_generate_noScoredDraftProduced_returns500(monkeypatch: pytest.MonkeyPat
         chroma_collection_name=f"test-{uuid.uuid4().hex}",
     )
     monkeypatch.setattr(
-        facade, "generate", lambda *, user_id, job_posting: WorkflowState(user_id=user_id)
+        facade,
+        "generate",
+        lambda *, user_id, job_posting, gate=None: WorkflowState(user_id=user_id),
     )
     test_client = TestClient(create_app(facade))
 
@@ -441,7 +457,7 @@ def test_uploadDocumentForJob_linksItAndListDocumentsForJobIncludesIt() -> None:
 
 def test_generateForJob_persistsAndExposesResumeId_missingJobReturns404() -> None:
     client = _client_with_scripted_calls(
-        [_JOB_DESCRIPTION_CALL], [_CANDIDATE_PROFILE_CALL, _RESUME_DRAFT_CALL, _TRUST_CALL]
+        [_JOB_DESCRIPTION_CALL], _JOB_SCOPED_GENERATION_DEFAULT_GATE
     )
     job = client.post("/api/jobs", json={"job_posting": "Senior Python Engineer role"}).json()
     client.post(
@@ -459,7 +475,7 @@ def test_generateForJob_persistsAndExposesResumeId_missingJobReturns404() -> Non
 
 
 def test_listResumesForJob_getResume_downloadPdfAndMarkdown() -> None:
-    client = _client_with_scripted_calls(_FULL_GENERATION)
+    client = _client_with_scripted_calls(_FULL_GENERATION_DEFAULT_GATE)
     job = client.post("/api/jobs", json={"job_posting": "Senior Python Engineer role"}).json()
     client.post(
         f"/api/jobs/{job['id']}/documents/upload",
@@ -495,7 +511,7 @@ def test_deleteJob_pastResumeStillDownloadable() -> None:
     (get/pdf/markdown) — job deletion only nulls job_id on the resume row, it
     never cascades to it.
     """
-    client = _client_with_scripted_calls(_FULL_GENERATION)
+    client = _client_with_scripted_calls(_FULL_GENERATION_DEFAULT_GATE)
     job = client.post("/api/jobs", json={"job_posting": "role"}).json()
     client.post(
         f"/api/jobs/{job['id']}/documents/upload",
@@ -563,7 +579,9 @@ def test_generateForJob_noScoredDraftProduced_returns500(
     test_client = TestClient(create_app(facade))
     job_id = test_client.post("/api/jobs", json={"job_posting": "role"}).json()["id"]
     monkeypatch.setattr(
-        facade, "generate_for_job", lambda *, user_id, job_id: WorkflowState(user_id=user_id)
+        facade,
+        "generate_for_job",
+        lambda *, user_id, job_id, gate=None: WorkflowState(user_id=user_id),
     )
 
     resp = test_client.post(f"/api/jobs/{job_id}/generate")
@@ -614,7 +632,7 @@ def test_userIdHeader_search_doesNotLeakAnotherUsersEvidence(client: TestClient)
 
 
 def test_userIdHeader_othersResume_is404NotReadable() -> None:
-    client = _client_with_scripted_calls(_FULL_GENERATION)
+    client = _client_with_scripted_calls(_FULL_GENERATION_DEFAULT_GATE)
     generated = client.post(
         "/api/generate",
         json={"job_posting": "Senior Python Engineer"},
@@ -664,10 +682,17 @@ def test_resumeRun_completedRun_httpRoundTripAndUserScoped(tmp_path: Path) -> No
         json={"filename": "r.txt", "text": "Built Python services on AWS."},
         headers={"X-User-Id": "ada"},
     )
-    # Seed a completed, checkpointed run keyed by a known run id.
+    # Seed a completed, checkpointed run keyed by a known run id. Calls the
+    # orchestrator directly (not over HTTP), so the gate can be overridden to
+    # match the fixture's single scripted round.
+    from trustresume.models import QualityGate
+
     asyncio.run(
         facade._orchestrator.run(
-            user_id="ada", job_posting="Senior Python Engineer", run_id="run-1"
+            user_id="ada",
+            job_posting="Senior Python Engineer",
+            run_id="run-1",
+            gate=QualityGate(max_iterations=0),
         )
     )
 

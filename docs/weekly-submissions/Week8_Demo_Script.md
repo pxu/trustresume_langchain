@@ -23,11 +23,13 @@ resolves to the demo user, whose account already has one uploaded resume
 completed generations, in case you want to show history without waiting on a new run.
 
 A real fix worth knowing before you record: the frontend used to time out after 120
-seconds, and a real 4 draft generation against Bedrock takes about 3 minutes, so the
-UI used to show a false "could not reach the backend" error even though the run had
-actually succeeded and saved. That is fixed now (timeout raised to 300 seconds in
-`src/trustresume/ui/api_client.py`), verified by rerunning the exact same flow. If you
-see that error anyway, it means something is genuinely wrong and worth mentioning on
+seconds, and a generation under the old default (4 drafts) against Bedrock took about 3
+minutes, so the UI used to show a false "could not reach the backend" error even though
+the run had actually succeeded and saved. That is fixed now (timeout raised to 300
+seconds in `src/trustresume/ui/api_client.py`), verified by rerunning the exact same
+flow. The default rewrite count is lower now (2 drafts), so a fresh run should complete
+in roughly half that time with plenty of headroom under the 300-second timeout — but if
+you see that error anyway, it means something is genuinely wrong and worth mentioning on
 camera rather than restarting and hoping it goes away.
 
 ## Recording
@@ -59,20 +61,26 @@ from scratch each time.
 narrate the pipeline rather than sitting in silence: evidence retrieval (hybrid vector
 and keyword search over the candidate's documents), the Resume Writer drafting from
 that evidence, the Trust Harness independently checking every claim, and ATS keyword
-scoring, looping up to three rewrites if either score falls short. This step takes
-roughly two to three minutes against a real model; if you would rather not show dead
-air, skip ahead to the next beat using an already completed run instead of waiting live.
+scoring. Worth a sentence on its own: the rewrite step no longer stops the moment a
+draft passes — it always rewrites at least once more (configurable; the "Rewrite
+attempts after the first draft" field on the Jobs tab, default 1) and keeps whichever
+draft actually scored best, not just whichever one happened to pass first. This step
+takes roughly one to two minutes against a real model; if you would rather not show
+dead air, skip ahead to the next beat using an already completed run instead of
+waiting live.
 
 **2:15 to 3:30, the result.** Whichever run you show (fresh or the two already saved),
 walk through what's on screen:
 
 - Trust score and ATS score as two metric cards, plus how many iterations it took.
-- The real numbers from the run already on file: Trust 92, ATS 38, 3 iterations, 8 LLM
-  calls, about 38,000 tokens, 171 seconds, $1.52. A second run on the same job scored
-  Trust 86, ATS 50.
-- The warning banner: "Hit the rewrite cap without passing, showing the last draft
-  anyway." Say plainly that this run did not pass, and that it is shown anyway rather
-  than hidden or silently upgraded.
+- **The two saved runs on file predate this rewrite-cap change and won't match a fresh
+  one** (they show 3 iterations each, from the old default of 3 rewrites; a new run
+  under the current default shows 1). Re-record this beat against a fresh "Generate for
+  this job" run rather than quoting the old saved numbers on camera — check the actual
+  Trust/ATS/iterations/cost shown once that run completes and narrate those.
+- The warning banner, if the run doesn't pass: "Did not pass the quality gate — showing
+  the best-scoring draft anyway." Say plainly that this run did not pass, and that it is
+  shown anyway rather than hidden or silently upgraded.
 - Scroll to "Missing ATS keywords": point out real gaps like "agentic systems",
   "supply chain", "Django", "Pydantic", words this candidate's actual background does
   not contain. This is the point to make explicit: the writer did not invent

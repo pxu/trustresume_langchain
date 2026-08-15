@@ -267,26 +267,32 @@ def test_writeRunArtifacts_singleDraft_omitsIterationHistory(tmp_path: Path) -> 
 
 
 def test_writeRunArtifacts_multipleDrafts_markdownShowsScoreTrajectory(tmp_path: Path) -> None:
+    """All drafts failed and the rewrite regressed — the best (earliest) draft is exported."""
     state = _state(passed=False)
     early_trust = TrustReport(claims=[], score=40.0)
-    early_ats = ATSReport(score=20.0, matched_keywords=[], missing_keywords=["kubernetes"])
+    early_ats = ATSReport(score=84.0, matched_keywords=[], missing_keywords=["kubernetes"])
+    # draft 0 scores ATS=84; the last draft regressed to ATS=50 (ranking among
+    # all-failed drafts is by ATS alone), so best-of selection exports draft
+    # 0, not the last one.
     state.drafts = [state.drafts[0], state.drafts[0]]
     state.trust_reports = [early_trust, state.trust_reports[0]]
     state.ats_reports = [early_ats, state.ats_reports[0]]
+    state.iteration = state.gate.max_iterations  # hit the cap without passing
 
     run_dir = _write(tmp_path, state)
 
     text = (run_dir / "evaluation.md").read_text(encoding="utf-8")
     assert "## Iteration history" in text
-    assert "| 0 | 40 | 20 | no |" in text
-    assert "| 1 (exported) | 0 | 50 | no |" in text
+    assert "| 0 (exported) | 40 | 84 | no |" in text
+    assert "| 1 | 0 | 50 | no |" in text
+    assert "best-scoring one across all iterations" in text
 
 
 def test_writeRunArtifacts_json_carriesEveryIterationsDraftAndReports(tmp_path: Path) -> None:
     """Without this, whether the exported draft beat earlier ones is unrecoverable."""
     state = _state(passed=False)
     early_trust = TrustReport(claims=[], score=40.0)
-    early_ats = ATSReport(score=20.0, matched_keywords=[], missing_keywords=["kubernetes"])
+    early_ats = ATSReport(score=84.0, matched_keywords=[], missing_keywords=["kubernetes"])
     state.drafts = [state.drafts[0], state.drafts[0]]
     state.trust_reports = [early_trust, state.trust_reports[0]]
     state.ats_reports = [early_ats, state.ats_reports[0]]

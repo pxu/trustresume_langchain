@@ -19,6 +19,7 @@ from trustresume.api.model_factory import (
     LLMConfig,
     RoleConfig,
     build_model,
+    load_quality_gate,
 )
 from trustresume.api.test_provider import AutoStructuredFakeChatModel
 
@@ -39,6 +40,8 @@ _CONFIG_ENV_VARS = (
     "TRUSTRESUME_LLM_EXTRACTION_TEMPERATURE",
     "TRUSTRESUME_LLM_WRITER_TEMPERATURE",
     "TRUSTRESUME_LLM_VERIFIER_TEMPERATURE",
+    "TRUSTRESUME_QUALITY_GATE_CONFIG",
+    "TRUSTRESUME_QUALITY_MAX_ITERATIONS",
 )
 
 
@@ -261,3 +264,76 @@ def test_buildBedrockModel_usesModuleDefaultsWhenArgsOmitted(session_cls: MagicM
         "region_name": BEDROCK_DEFAULT_REGION,
     }
     assert model.model_id == BEDROCK_DEFAULT_MODEL  # type: ignore[attr-defined]
+
+
+# --- load_quality_gate (mirrors LLMConfig.load's precedence) ---------------
+
+
+def test_loadQualityGate_missingFile_usesPydanticDefault(tmp_path: Path) -> None:
+    gate = load_quality_gate(tmp_path / "nope.json")
+    assert gate.max_iterations == 3  # QualityGate's own Field(default=3, ...)
+
+
+def test_loadQualityGate_readsMaxIterationsFromJson(tmp_path: Path) -> None:
+    path = _write(tmp_path / "quality_gate.json", max_iterations=1)
+    assert load_quality_gate(path).max_iterations == 1
+
+
+def test_loadQualityGate_ignoresCommentKeys(tmp_path: Path) -> None:
+    path = tmp_path / "quality_gate.json"
+    path.write_text(json.dumps({"$comment": "docs", "max_iterations": 0}), encoding="utf-8")
+    assert load_quality_gate(path).max_iterations == 0
+
+
+def test_loadQualityGate_fileWithoutMaxIterationsKey_usesPydanticDefault(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "quality_gate.json"
+    path.write_text(json.dumps({"$comment": "docs only, no max_iterations"}), encoding="utf-8")
+    assert load_quality_gate(path).max_iterations == 3
+
+
+def test_loadQualityGate_localOverlayWins(tmp_path: Path) -> None:
+    _write(tmp_path / "quality_gate.json", max_iterations=2)
+    _write(tmp_path / "quality_gate.local.json", max_iterations=5)
+    assert load_quality_gate(tmp_path / "quality_gate.json").max_iterations == 5
+
+
+def test_loadQualityGate_envOverridesJson(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _write(tmp_path / "quality_gate.json", max_iterations=2)
+    monkeypatch.setenv("TRUSTRESUME_QUALITY_MAX_ITERATIONS", "7")
+    assert load_quality_gate(path).max_iterations == 7
+
+
+def test_loadQualityGate_unparseableEnvValue_fallsBackToPydanticDefault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write(tmp_path / "quality_gate.json", max_iterations=2)
+    monkeypatch.setenv("TRUSTRESUME_QUALITY_MAX_ITERATIONS", "not-a-number")
+    # A typo'd env var must not crash startup. Falls all the way to the
+    # Pydantic default rather than back down to the file value — matching
+    # LLMConfig.load's own precedent (once the env var is present, it wins or
+    # falls back to the ultimate default; the file isn't consulted again).
+    assert load_quality_gate(path).max_iterations == 3
+
+
+def test_loadQualityGate_unparseableFileValue_fallsBackToPydanticDefault(
+    tmp_path: Path,
+) -> None:
+    path = _write(tmp_path / "quality_gate.json", max_iterations="lots")
+    assert load_quality_gate(path).max_iterations == 3
+
+
+def test_loadQualityGate_outOfRangeValue_fallsBackToPydanticDefault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # max_iterations has a ge=0 floor; a negative value is parseable as an int
+    # but still invalid — this must be caught too, not just non-numeric input.
+    monkeypatch.setenv("TRUSTRESUME_QUALITY_MAX_ITERATIONS", "-1")
+    assert load_quality_gate(tmp_path / "nope.json").max_iterations == 3
+
+
+def test_loadQualityGate_customPathEnvVar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _write(tmp_path / "custom_gate.json", max_iterations=4)
+    monkeypatch.setenv("TRUSTRESUME_QUALITY_GATE_CONFIG", str(path))
+    assert load_quality_gate().max_iterations == 4
