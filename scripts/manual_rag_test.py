@@ -10,6 +10,7 @@ trustresume.db/chroma_data.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -18,7 +19,7 @@ from pathlib import Path
 from trustresume.api.app_service import build_default_app
 from trustresume.api.model_factory import LLMConfig
 from trustresume.ingestion.parser import parse_document
-from trustresume.models import DocumentType
+from trustresume.models import DocumentType, QualityGate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 USER_ID = "manual-test-user"
@@ -27,6 +28,15 @@ DEFAULT_JOB_POSTING = REPO_ROOT / "data/sample_job_descriptions/Sample_Job_Descr
 
 def main() -> None:
     job_posting_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_JOB_POSTING
+    # Unset (the default) uses build_default_app's own config/env-resolved
+    # gate (config/quality_gate.json) — set this to compare a specific
+    # max_iterations against that default without touching any config file.
+    max_iterations_override = os.getenv("MANUAL_TEST_MAX_ITERATIONS")
+    gate = (
+        QualityGate(max_iterations=int(max_iterations_override))
+        if max_iterations_override
+        else None
+    )
     tmp_dir = tempfile.mkdtemp(prefix="trustresume_manual_")
     try:
         db_path = str(Path(tmp_dir) / "manual.db")
@@ -54,28 +64,43 @@ def main() -> None:
                 file=sys.stderr,
             )
 
-            print("[generate] running full pipeline against Bedrock...", file=sys.stderr)
-            state = app.generate(user_id=USER_ID, job_posting=job_posting_text)
+            print(
+                f"[generate] running full pipeline against Bedrock "
+                f"(gate={'default' if gate is None else gate})...",
+                file=sys.stderr,
+            )
+            state = app.generate(user_id=USER_ID, job_posting=job_posting_text, gate=gate)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     result = {
-        "iteration": state.iteration,
-        "passed": state.passed,
-        "exhausted": state.is_exhausted,
-        "trust_score": state.current_trust.score if state.current_trust else None,
-        "ats_score": state.current_ats.score if state.current_ats else None,
+        # final_* reflect the draft actually shipped/persisted — the quality
+        # loop no longer stops on the first pass, so this can be an earlier
+        # iteration than the last one generated (see WorkflowState.final_index).
+        "final_index": state.final_index,
+        "total_drafts": len(state.drafts),
+        "passed": state.final_passed,
+        "trust_score": state.final_trust.score if state.final_trust else None,
+        "ats_score": state.final_ats.score if state.final_ats else None,
         "hallucinations": [
             {"text": c.text, "category": c.category.value}
-            for c in (state.current_trust.hallucinations if state.current_trust else [])
+            for c in (state.final_trust.hallucinations if state.final_trust else [])
         ],
-        "missing_keywords": state.current_ats.missing_keywords if state.current_ats else [],
-        "matched_keywords": state.current_ats.matched_keywords if state.current_ats else [],
-        "draft": state.current_draft.model_dump() if state.current_draft else None,
+        "missing_keywords": state.final_ats.missing_keywords if state.final_ats else [],
+        "matched_keywords": state.final_ats.matched_keywords if state.final_ats else [],
+        "draft": state.final_draft.model_dump() if state.final_draft else None,
         "job_title": state.job.title if state.job else None,
         "candidate_profile": state.candidate_profile.model_dump()
         if state.candidate_profile
         else None,
+        "per_iteration_scores": [
+            {
+                "iteration": i,
+                "trust": state.trust_reports[i].score if i < len(state.trust_reports) else None,
+                "ats": state.ats_reports[i].score if i < len(state.ats_reports) else None,
+            }
+            for i in range(len(state.drafts))
+        ],
     }
     print(json.dumps(result, indent=2, ensure_ascii=False))
 

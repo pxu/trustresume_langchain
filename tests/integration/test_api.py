@@ -290,7 +290,9 @@ def test_generate_noScoredDraftProduced_returns500(monkeypatch: pytest.MonkeyPat
         chroma_collection_name=f"test-{uuid.uuid4().hex}",
     )
     monkeypatch.setattr(
-        facade, "generate", lambda *, user_id, job_posting: WorkflowState(user_id=user_id)
+        facade,
+        "generate",
+        lambda *, user_id, job_posting, gate=None: WorkflowState(user_id=user_id),
     )
     test_client = TestClient(create_app(facade))
 
@@ -577,7 +579,9 @@ def test_generateForJob_noScoredDraftProduced_returns500(
     test_client = TestClient(create_app(facade))
     job_id = test_client.post("/api/jobs", json={"job_posting": "role"}).json()["id"]
     monkeypatch.setattr(
-        facade, "generate_for_job", lambda *, user_id, job_id: WorkflowState(user_id=user_id)
+        facade,
+        "generate_for_job",
+        lambda *, user_id, job_id, gate=None: WorkflowState(user_id=user_id),
     )
 
     resp = test_client.post(f"/api/jobs/{job_id}/generate")

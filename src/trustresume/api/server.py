@@ -42,6 +42,7 @@ from .schemas import (
     AddDocumentRequest,
     CreateJobRequest,
     DocumentSummary,
+    GenerateForJobRequest,
     GenerateRequest,
     GenerateResponse,
     JobDetail,
@@ -456,7 +457,9 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
     @api.post("/api/generate", response_model=GenerateResponse)
     def generate(req: GenerateRequest, user_id: CurrentUser) -> GenerateResponse:
         logger.info("generate requested", extra={"user_id": user_id})
-        state = app_facade.generate(user_id=user_id, job_posting=req.job_posting)
+        state = app_facade.generate(
+            user_id=user_id, job_posting=req.job_posting, gate=req.to_gate()
+        )
         try:
             return GenerateResponse.from_state(state)
         except ValueError as exc:  # no scored draft produced
@@ -464,15 +467,21 @@ def create_app(app_facade: TrustResumeApp) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @api.post("/api/jobs/{job_id}/generate", response_model=GenerateResponse)
-    def generate_for_job(job_id: str, user_id: CurrentUser) -> GenerateResponse:
+    def generate_for_job(
+        job_id: str, user_id: CurrentUser, req: GenerateForJobRequest | None = None
+    ) -> GenerateResponse:
         """Generate against a persisted job, scoped to its eligible documents.
 
         Re-uses the job's already-extracted ``JobDescription`` — no
         re-extraction — and retrieves only from the generic pool plus
         whatever's linked to this job, not every document the demo user owns.
+        ``req`` is optional — existing callers that post no body at all are
+        unaffected.
         """
         logger.info("generate-for-job requested", extra={"user_id": user_id, "job_id": job_id})
-        state = app_facade.generate_for_job(user_id=user_id, job_id=job_id)
+        state = app_facade.generate_for_job(
+            user_id=user_id, job_id=job_id, gate=req.to_gate() if req else None
+        )
         if state is None:
             raise HTTPException(status_code=404, detail="job not found")
         try:

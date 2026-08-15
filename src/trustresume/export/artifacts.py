@@ -308,7 +308,6 @@ def _evaluation_json(
         "iteration": state.iteration,
         "exported_iteration": state.final_index,
         "passed": state.final_passed,
-        "exhausted": state.is_exhausted,
         "gate": state.gate.model_dump(),
         "trust": trust.model_dump(mode="json"),
         "ats": ats.model_dump(mode="json"),

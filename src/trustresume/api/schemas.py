@@ -13,7 +13,14 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints
 
-from trustresume.models import DocumentType, EvidenceSet, ResumeDraft, RunUsage, WorkflowState
+from trustresume.models import (
+    DocumentType,
+    EvidenceSet,
+    QualityGate,
+    ResumeDraft,
+    RunUsage,
+    WorkflowState,
+)
 
 # ``min_length=1`` alone accepts a whitespace-only string (e.g. " "), which
 # would sail through validation and then silently produce a document with
@@ -41,9 +48,41 @@ class DocumentSummary(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    """Body for a resume generation run."""
+    """Body for a resume generation run.
+
+    ``max_iterations`` overrides this app's config/env-resolved default
+    (``config/quality_gate.json`` — see
+    :func:`trustresume.api.model_factory.load_quality_gate`) for this call
+    only; omitting it (``None``) uses that default. Counts rewrites *after*
+    the initial draft, so ``0`` means "one draft, no rewrite" and ``1`` means
+    two total drafts — see :class:`trustresume.models.QualityGate`.
+    """
 
     job_posting: NonEmptyStr
+    max_iterations: int | None = Field(default=None, ge=0)
+
+    def to_gate(self) -> QualityGate | None:
+        """``None`` when unset, so the caller falls back to its own default."""
+        if self.max_iterations is None:
+            return None
+        return QualityGate(max_iterations=self.max_iterations)
+
+
+class GenerateForJobRequest(BaseModel):
+    """Body for generating against a persisted job — every field optional.
+
+    Unlike :class:`GenerateRequest`, nothing here is required (the job
+    posting itself is already persisted), so an empty body (``{}``) is valid
+    — existing callers that post no body at all are unaffected.
+    """
+
+    max_iterations: int | None = Field(default=None, ge=0)
+
+    def to_gate(self) -> QualityGate | None:
+        """``None`` when unset, so the caller falls back to its own default."""
+        if self.max_iterations is None:
+            return None
+        return QualityGate(max_iterations=self.max_iterations)
 
 
 class SearchRequest(BaseModel):
@@ -128,18 +167,16 @@ class GenerateResponse(BaseModel):
     """The result of a generation run, shaped for the React client.
 
     Surfaces the *real* scores and the pass/fail even when the shipped draft
-    didn't pass — the UI decides how to warn. ``exhausted`` is currently
-    always ``True`` for any real run: the quality loop no longer exits early
-    on a pass, so every completed run has reached the iteration cap by the
-    time this is built. Kept rather than removed since it's still a
-    meaningful concept on hand-built ``WorkflowState``s (e.g. in tests).
+    didn't pass — the UI decides how to warn. No ``exhausted`` field: the
+    quality loop no longer exits early on a pass, so every completed run has
+    reached the iteration cap by construction — a field that's always
+    ``True`` carries no information. Check ``passed`` instead.
     """
 
     draft: ResumeDraft
     trust_score: float
     ats_score: float
     passed: bool
-    exhausted: bool
     iterations: int
     hallucinations: list[ClaimView]
     missing_keywords: list[str]
@@ -159,7 +196,6 @@ class GenerateResponse(BaseModel):
             trust_score=trust.score,
             ats_score=ats.score,
             passed=state.final_passed,
-            exhausted=state.is_exhausted,
             iterations=state.iteration,
             hallucinations=[
                 ClaimView(text=c.text, category=c.category.value) for c in trust.hallucinations
