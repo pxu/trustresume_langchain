@@ -92,6 +92,18 @@ def _job_summary(job: JobDescription) -> str | None:
     return text[:_SUMMARY_FALLBACK_CHARS]
 
 
+class NoEvidenceError(ValueError):
+    """Raised by ``generate``/``generate_for_job`` when there's no evidence to draft from.
+
+    A résumé grounded in zero documents isn't a degraded result worth
+    generating anyway — it's an empty ``EvidenceSet`` that still burns a full
+    round of LLM calls (job/profile extraction, the writer, the Trust
+    Harness, ATS scoring) to produce an ungrounded draft nobody asked for.
+    Raised before the orchestrator ever runs, so the rejection is immediate
+    and free.
+    """
+
+
 class TrustResumeApp:
     """Full application: ingest documents, generate a resume, persist the result."""
 
@@ -399,7 +411,14 @@ class TrustResumeApp:
         draft (ADR-0005). ``gate`` overrides this app's ``default_gate``
         (itself config/env-resolved by ``build_default_app`` via
         ``model_factory.load_quality_gate`` — see ``__init__``) when given.
+
+        Raises :class:`NoEvidenceError` if ``user_id`` has ingested no
+        documents at all — nothing for the Resume Writer to ground a draft in.
         """
+        if not self._documents.list_for_user(user_id):
+            raise NoEvidenceError(
+                "no documents ingested for this user — upload at least one before generating"
+            )
         run_id = self._new_run_id()
         state = asyncio.run(
             self._orchestrator.run(
@@ -426,12 +445,23 @@ class TrustResumeApp:
         its own). ``gate`` overrides this app's ``default_gate`` (itself
         config/env-resolved by ``build_default_app`` via
         ``model_factory.load_quality_gate`` — see ``__init__``) when given.
+
+        Raises :class:`NoEvidenceError` if this job has zero eligible
+        documents (generic pool + job-linked, per
+        ``DocumentRepository.list_eligible_document_ids``) — a user can own
+        documents while none of them are eligible for *this* job specifically
+        (e.g. all linked only to other jobs), so this is a narrower check
+        than :meth:`generate`'s.
         """
         row = self._jobs.get(user_id=user_id, job_id=job_id)
         if row is None:
             return None
         job = JobDescription.model_validate_json(row["job_description_json"])
         document_ids = self._documents.list_eligible_document_ids(user_id=user_id, job_id=job_id)
+        if not document_ids:
+            raise NoEvidenceError(
+                "no eligible documents for this job — upload or link at least one before generating"
+            )
         run_id = self._new_run_id()
         state = asyncio.run(
             self._orchestrator.run(
