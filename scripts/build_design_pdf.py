@@ -69,6 +69,15 @@ _DIAGRAM_ANCHORS: list[tuple[str, str, str]] = [
     ),
 ]
 
+# fpdf2's HTML writer honors a non-standard `line-height` attribute on <p>/
+# <ul>/<ol> (kept for backward compatibility, see fpdf2's html.py) as a
+# multiplier of the font's natural leading — there's no other way to loosen
+# the space between wrapped lines within a paragraph or list item via
+# tag_styles (TextStyle has no line-height field). 1.0 (fpdf2's default) is
+# single-spaced and reads as cramped at body size; 1.35 gives real breathing
+# room between lines while still fitting comfortably on the page.
+_BODY_LINE_HEIGHT = 1.35
+
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
 _ITALIC_RE = re.compile(r"(?<!\*)\*([^*]+)\*(?!\*)")
@@ -179,7 +188,7 @@ def markdown_to_html(md_text: str) -> str:
         nonlocal in_table, table_header
         if not in_table:
             return
-        out.append('<table border="1" cellpadding="4">')
+        out.append('<table border="1" cellpadding="5">')
         if table_header is not None:
             out.append(
                 "<thead><tr>"
@@ -259,14 +268,22 @@ def markdown_to_html(md_text: str) -> str:
         if re.match(r"^\d+\.\s+", stripped):
             items, consumed = _consume_list_items(lines, i, marker_re=r"^\d+\.\s+")
             i += consumed
-            out.append("<ol>" + "".join(f"<li>{_inline(it)}</li>" for it in items) + "</ol>")
+            out.append(
+                f'<ol line-height="{_BODY_LINE_HEIGHT}">'
+                + "".join(f"<li>{_inline(it)}</li>" for it in items)
+                + "</ol>"
+            )
             continue
 
         # Unordered list — same continuation-folding as above.
         if stripped.startswith("- ") or stripped.startswith("* "):
             items, consumed = _consume_list_items(lines, i, marker_re=r"^[-*]\s+")
             i += consumed
-            out.append("<ul>" + "".join(f"<li>{_inline(it)}</li>" for it in items) + "</ul>")
+            out.append(
+                f'<ul line-height="{_BODY_LINE_HEIGHT}">'
+                + "".join(f"<li>{_inline(it)}</li>" for it in items)
+                + "</ul>"
+            )
             continue
 
         # Horizontal rule
@@ -289,7 +306,7 @@ def markdown_to_html(md_text: str) -> str:
                 break
             para_lines.append(nxt)
             i += 1
-        out.append(f"<p>{_inline(' '.join(para_lines))}</p>")
+        out.append(f'<p line-height="{_BODY_LINE_HEIGHT}">{_inline(" ".join(para_lines))}</p>')
 
     flush_table()
 
@@ -321,8 +338,8 @@ def build_pdf() -> None:
     pdf.add_font("DejaVuMono", "I", str(_FONT_DIR / "DejaVuSansMono-Oblique.ttf"))
     pdf.add_font("DejaVuMono", "BI", str(_FONT_DIR / "DejaVuSansMono-BoldOblique.ttf"))
     pdf.set_font("DejaVu", size=11)
-    pdf.set_margin(18)
-    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_margin(20)
+    pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
 
     # Title page content, then the converted body. Every multi_cell call below
@@ -353,12 +370,49 @@ def build_pdf() -> None:
         body_html,
         table_line_separators=True,
         tag_styles={
-            "h1": TextStyle(font_family="DejaVu", font_style="B", font_size_pt=20, color="#1f3552"),
-            "h2": TextStyle(font_family="DejaVu", font_style="B", font_size_pt=16, color="#1f3552"),
-            "h3": TextStyle(font_family="DejaVu", font_style="B", font_size_pt=13, color="#1f3552"),
-            "h4": TextStyle(font_family="DejaVu", font_style="B", font_size_pt=11.5, color="#1f3552"),
-            "li": TextStyle(l_margin=6),
-            "pre": TextStyle(font_family="DejaVuMono", font_size_pt=9),
+            # Supplying tag_styles here replaces fpdf2's DEFAULT_TAG_STYLES
+            # entries entirely rather than merging with them, so every field
+            # a TextStyle doesn't set here (notably t_margin/b_margin) falls
+            # back to TextStyle's own default of 0 — *not* fpdf2's normally
+            # generous heading/list/code-block spacing. Explicit t_margin/
+            # b_margin below restores (and, for headings, increases) that
+            # breathing room; leaving them off is what made headings run
+            # straight into the surrounding body text.
+            "h1": TextStyle(
+                font_family="DejaVu",
+                font_style="B",
+                font_size_pt=20,
+                color="#1f3552",
+                t_margin=9,
+                b_margin=0.6,
+            ),
+            "h2": TextStyle(
+                font_family="DejaVu",
+                font_style="B",
+                font_size_pt=16,
+                color="#1f3552",
+                t_margin=8,
+                b_margin=0.55,
+            ),
+            "h3": TextStyle(
+                font_family="DejaVu",
+                font_style="B",
+                font_size_pt=13,
+                color="#1f3552",
+                t_margin=6,
+                b_margin=0.5,
+            ),
+            "h4": TextStyle(
+                font_family="DejaVu",
+                font_style="B",
+                font_size_pt=11.5,
+                color="#1f3552",
+                t_margin=5,
+                b_margin=0.45,
+            ),
+            "p": TextStyle(t_margin=1.5, b_margin=1.5),
+            "li": TextStyle(l_margin=6, t_margin=1.5),
+            "pre": TextStyle(font_family="DejaVuMono", font_size_pt=9, t_margin=3, b_margin=3),
             "code": TextStyle(font_family="DejaVuMono"),
         },
     )
