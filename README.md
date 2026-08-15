@@ -71,13 +71,26 @@ Run the API (offline, no credentials needed):
 TRUSTRESUME_LLM_PROVIDER=test uvicorn trustresume.api.server:build_served_app --factory --port 8000
 ```
 
-Run the Streamlit frontend against it:
+Or against a real model — inherits AWS credentials from your shell (default
+provider is Bedrock, profile `twdc-bedrock-central`; see
+`api/model_factory.py`'s `LLMConfig` for OpenAI/Google instead):
+
+```bash
+source .venv/bin/activate
+uvicorn trustresume.api.server:build_served_app --factory --port 8000
+```
+
+Run the Streamlit frontend against either one:
 
 ```bash
 TRUSTRESUME_API_URL=http://localhost:8000 streamlit run src/trustresume/ui/streamlit_app.py
 ```
 
-Or run both together via Docker Compose (also credential-free by default):
+Or run both together via Docker Compose (credential-free by default — it
+always uses the offline `test` provider unless you override
+`TRUSTRESUME_LLM_PROVIDER`/`TRUSTRESUME_AWS_PROFILE` *and* mount your AWS
+credentials into the container, so for a quick real-model check the two
+commands above are simpler):
 
 ```bash
 docker compose up --build
