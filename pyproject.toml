@@ -30,6 +30,9 @@ dev = [
     # Only used to build .docx fixtures in tests/unit/test_ingestion.py — the
     # app itself parses .docx via the unstructured[docx] core dependency.
     "python-docx",
+    # Editing docs/weekly-submissions/*.pptx as the project evolves — not used
+    # by the app or the test suite at all.
+    "python-pptx",
 ]
 # Per-provider LLM SDKs, mirroring the original's lazy-import-per-branch
 # pattern in api/model_factory.py. Bedrock uses boto3 (already a core dep).

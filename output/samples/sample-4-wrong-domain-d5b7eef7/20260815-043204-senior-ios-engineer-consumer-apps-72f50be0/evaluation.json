@@ -1,0 +1,712 @@
+{
+  "resume_id": "72f50be005f4467c8eac5b81b4edca71",
+  "user_id": "sample-4-wrong-domain",
+  "job_id": null,
+  "iteration": 1,
+  "exported_iteration": 1,
+  "passed": false,
+  "gate": {
+    "min_trust_score": 90.0,
+    "min_ats_score": 85.0,
+    "max_iterations": 1
+  },
+  "trust": {
+    "claims": [
+      {
+        "text": "Senior Backend Engineer with 5 years of experience",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Evidence shows role as Senior Backend Engineer at Northwind Logistics from 2021-2026, which is 5 years."
+      },
+      {
+        "text": "Designing high-throughput, event-driven systems",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Evidence confirms designing an event-driven order pipeline processing 40 million events per day."
+      },
+      {
+        "text": "Leading engineering teams",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Evidence confirms leading a team of five engineers through two performance cycles."
+      },
+      {
+        "text": "Ship production services processing tens of millions of events daily",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Evidence states 40 million events per day, which is tens of millions."
+      },
+      {
+        "text": "Own CI/CD infrastructure at scale",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Evidence confirms owning the CI/CD platform for 40 engineers."
+      },
+      {
+        "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Directly stated in evidence."
+      },
+      {
+        "text": "Cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Directly stated in evidence."
+      },
+      {
+        "text": "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that reduced mean build time from 11 minutes to 4 minutes",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Directly stated in evidence."
+      },
+      {
+        "text": "Wrote Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook still used by the on-call team",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Directly stated in evidence."
+      },
+      {
+        "text": "Led a team of five engineers through two performance cycles",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba"
+        ],
+        "rationale": "Directly stated in evidence."
+      },
+      {
+        "text": "Rebuilt on-call rotation reducing pages from six per week to roughly one per week",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba",
+          "38a89216f2e24ba4b772fe9564e92c45"
+        ],
+        "rationale": "Evidence confirms rebuilding on-call rotation with pages dropping from six per week to roughly one per week."
+      },
+      {
+        "text": "Introduced Apache Kafka as backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "38a89216f2e24ba4b772fe9564e92c45"
+        ],
+        "rationale": "Directly stated in evidence."
+      },
+      {
+        "text": "Languages: Python, Go",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "38a89216f2e24ba4b772fe9564e92c45"
+        ],
+        "rationale": "Evidence states 'Python and Go day to day.'"
+      },
+      {
+        "text": "Infrastructure: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, Docker, Kubernetes, GitHub Actions",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "c86d9e2b9b5d4021a1b946a4679503ba",
+          "38a89216f2e24ba4b772fe9564e92c45"
+        ],
+        "rationale": "AWS services (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, and GitHub Actions are mentioned in the work descriptions. Docker and Kubernetes are confirmed in evidence as used in production."
+      },
+      {
+        "text": "Data & Messaging: Apache Kafka, Avro, PostgreSQL, Redis",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "38a89216f2e24ba4b772fe9564e92c45"
+        ],
+        "rationale": "Kafka and Avro are confirmed via the cross-team data exchange work. Postgres and Redis are confirmed as used in production."
+      },
+      {
+        "text": "Observability: Datadog",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "38a89216f2e24ba4b772fe9564e92c45"
+        ],
+        "rationale": "Evidence mentions consumer-lag alerting in Datadog."
+      }
+    ],
+    "score": 100.0,
+    "iteration": 1
+  },
+  "ats": {
+    "score": 0.0,
+    "matched_keywords": [],
+    "missing_keywords": [
+      "Swift",
+      "SwiftUI",
+      "UIKit",
+      "Core Data",
+      "AVFoundation",
+      "XCTest",
+      "Metal",
+      "iOS",
+      "memory management",
+      "battery profiling",
+      "video playback",
+      "offline download",
+      "native iOS apps",
+      "App Store",
+      "consumer apps",
+      "ARKit",
+      "Objective-C"
+    ],
+    "notes": null,
+    "iteration": 1
+  },
+  "rejection_reason": "ATS score 0 (needs >= 85).",
+  "improvement_suggestions": "Where the evidence genuinely supports them, incorporate these target keywords the draft is missing: Swift, SwiftUI, UIKit, Core Data, AVFoundation, XCTest, Metal, iOS, memory management, battery profiling, video playback, offline download, native iOS apps, App Store, consumer apps, ARKit, Objective-C",
+  "usage": {
+    "models": [
+      {
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 10102,
+        "output_tokens": 4758,
+        "calls": 6
+      }
+    ],
+    "timings": [
+      {
+        "node": "analyze_job",
+        "duration_ms": 4750.148624996655
+      },
+      {
+        "node": "load_candidate_profile",
+        "duration_ms": 4138.7686250091065
+      },
+      {
+        "node": "retrieve_evidence",
+        "duration_ms": 10.620750021189451
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7750.928791996557
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 16367.290416994365
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.08770800195634365
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.015124998753890395
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 7337.0494169939775
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 14551.454083994031
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.06487499922513962
+      }
+    ],
+    "node_calls": [
+      {
+        "node": "analyze_job",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1241,
+        "output_tokens": 435,
+        "cost_usd": 0.05124
+      },
+      {
+        "node": "load_candidate_profile",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1247,
+        "output_tokens": 217,
+        "cost_usd": 0.03498
+      },
+      {
+        "node": "write_resume",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1572,
+        "output_tokens": 460,
+        "cost_usd": 0.05808
+      },
+      {
+        "node": "score_trust",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 2209,
+        "output_tokens": 1709,
+        "cost_usd": 0.16131
+      },
+      {
+        "node": "write_resume",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1663,
+        "output_tokens": 427,
+        "cost_usd": 0.05697
+      },
+      {
+        "node": "score_trust",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 2170,
+        "output_tokens": 1510,
+        "cost_usd": 0.1458
+      }
+    ],
+    "total_duration_ms": 54916.02083298494,
+    "cost_usd": 0.50838
+  },
+  "iterations": [
+    {
+      "iteration": 0,
+      "draft": {
+        "summary": "Backend engineer with 5 years of experience designing and operating high-throughput distributed systems at scale. Proven ability to own critical platform infrastructure, lead small engineering teams, and deliver measurable latency and reliability improvements in production environments processing tens of millions of events daily.",
+        "sections": [
+          {
+            "heading": "Senior Backend Engineer | Northwind Logistics | 2021–2026",
+            "bullets": [
+              "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day; cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
+              "Owned the CI/CD platform for 40 engineers using GitHub Actions on autoscaling EC2 with a shared caching layer, reducing mean build time from 11 minutes to 4 minutes",
+              "Authored Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, including the rollback runbook used by the on-call team",
+              "Led a team of five engineers through two performance cycles; redesigned on-call rotation reducing weekly pages from six to approximately one",
+              "Introduced Apache Kafka as backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+              "Technologies: Python, Go, PostgreSQL, Redis, Docker, Kubernetes, AWS (Lambda, EventBridge, SQS, ECS Fargate)"
+            ]
+          },
+          {
+            "heading": "Technical Skills",
+            "bullets": [
+              "Languages: Python, Go",
+              "Infrastructure & DevOps: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, Docker, Kubernetes, GitHub Actions",
+              "Data & Messaging: Apache Kafka, Avro/Schema Registry, PostgreSQL, Redis",
+              "Observability: Datadog"
+            ]
+          }
+        ],
+        "iteration": 0
+      },
+      "trust": {
+        "claims": [
+          {
+            "text": "5 years of experience designing and operating high-throughput distributed systems at scale",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "The evidence shows employment at Northwind Logistics from 2021-2026 (5 years) working on distributed systems (event-driven pipelines, Kafka, etc.)."
+          },
+          {
+            "text": "Proven ability to own critical platform infrastructure",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence shows owning the CI/CD platform for 40 engineers and the event-driven order pipeline."
+          },
+          {
+            "text": "Lead small engineering teams",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence confirms leading a team of five engineers through two performance cycles."
+          },
+          {
+            "text": "Deliver measurable latency and reliability improvements in production environments processing tens of millions of events daily",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence confirms 40M events/day processing and p99 latency reduction from 900ms to 120ms, plus pages reduced from six to roughly one per week."
+          },
+          {
+            "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in the evidence."
+          },
+          {
+            "text": "Cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in the evidence."
+          },
+          {
+            "text": "Owned the CI/CD platform for 40 engineers using GitHub Actions on autoscaling EC2 with a shared caching layer, reducing mean build time from 11 minutes to 4 minutes",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence states 'Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 and a shared caching layer that cut mean build time from 11 minutes to 4.'"
+          },
+          {
+            "text": "Authored Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, including the rollback runbook used by the on-call team",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence states 'Wrote the Terraform modules and the blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses.'"
+          },
+          {
+            "text": "Led a team of five engineers through two performance cycles",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in the evidence."
+          },
+          {
+            "text": "Redesigned on-call rotation reducing weekly pages from six to approximately one",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba",
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Evidence states 'Rebuilt the on-call rotation after a quarter averaging six pages a week; pages dropped to roughly one a week.' The draft says 'redesigned' vs 'rebuilt' and 'approximately one' vs 'roughly one' — same meaning."
+          },
+          {
+            "text": "Introduced Apache Kafka as backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Directly stated in the evidence."
+          },
+          {
+            "text": "Technologies: Python, Go, PostgreSQL, Redis, Docker, Kubernetes, AWS (Lambda, EventBridge, SQS, ECS Fargate)",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba",
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Evidence confirms Python, Go, Postgres, Redis, Docker, Kubernetes in production, and AWS services (Lambda, EventBridge, SQS, ECS Fargate) through the project descriptions."
+          },
+          {
+            "text": "Terraform",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence mentions writing Terraform modules."
+          },
+          {
+            "text": "GitHub Actions",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence mentions GitHub Actions runners as part of the CI/CD platform."
+          },
+          {
+            "text": "Apache Kafka, Avro/Schema Registry",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Evidence confirms Kafka with schema-registry-enforced Avro contracts."
+          },
+          {
+            "text": "Datadog",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Evidence mentions consumer-lag alerting in Datadog."
+          },
+          {
+            "text": "AWS EC2",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence mentions autoscaling EC2 runners for CI/CD."
+          }
+        ],
+        "score": 100.0,
+        "iteration": 0
+      },
+      "ats": {
+        "score": 0.0,
+        "matched_keywords": [],
+        "missing_keywords": [
+          "Swift",
+          "SwiftUI",
+          "UIKit",
+          "Core Data",
+          "AVFoundation",
+          "XCTest",
+          "Metal",
+          "iOS",
+          "memory management",
+          "battery profiling",
+          "video playback",
+          "offline download",
+          "native iOS apps",
+          "App Store",
+          "consumer apps",
+          "ARKit",
+          "Objective-C"
+        ],
+        "notes": null,
+        "iteration": 0
+      }
+    },
+    {
+      "iteration": 1,
+      "draft": {
+        "summary": "Senior Backend Engineer with 5 years of experience designing high-throughput, event-driven systems and leading engineering teams. Proven ability to ship production services processing tens of millions of events daily, optimize latency and reliability, and own CI/CD infrastructure at scale.",
+        "sections": [
+          {
+            "heading": "Senior Backend Engineer — Northwind Logistics (2021–2026)",
+            "bullets": [
+              "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day; cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
+              "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that reduced mean build time from 11 minutes to 4 minutes",
+              "Wrote Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook still used by the on-call team",
+              "Led a team of five engineers through two performance cycles; rebuilt on-call rotation reducing pages from six per week to roughly one per week",
+              "Introduced Apache Kafka as backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog"
+            ]
+          },
+          {
+            "heading": "Technical Skills",
+            "bullets": [
+              "Languages: Python, Go",
+              "Infrastructure: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, Docker, Kubernetes, GitHub Actions",
+              "Data & Messaging: Apache Kafka, Avro, PostgreSQL, Redis",
+              "Observability: Datadog"
+            ]
+          }
+        ],
+        "iteration": 1
+      },
+      "trust": {
+        "claims": [
+          {
+            "text": "Senior Backend Engineer with 5 years of experience",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence shows role as Senior Backend Engineer at Northwind Logistics from 2021-2026, which is 5 years."
+          },
+          {
+            "text": "Designing high-throughput, event-driven systems",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence confirms designing an event-driven order pipeline processing 40 million events per day."
+          },
+          {
+            "text": "Leading engineering teams",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence confirms leading a team of five engineers through two performance cycles."
+          },
+          {
+            "text": "Ship production services processing tens of millions of events daily",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence states 40 million events per day, which is tens of millions."
+          },
+          {
+            "text": "Own CI/CD infrastructure at scale",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Evidence confirms owning the CI/CD platform for 40 engineers."
+          },
+          {
+            "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in evidence."
+          },
+          {
+            "text": "Cut p99 latency from 900 ms to 120 ms by replacing synchronous fan-out with an SQS buffer",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in evidence."
+          },
+          {
+            "text": "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that reduced mean build time from 11 minutes to 4 minutes",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in evidence."
+          },
+          {
+            "text": "Wrote Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook still used by the on-call team",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in evidence."
+          },
+          {
+            "text": "Led a team of five engineers through two performance cycles",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba"
+            ],
+            "rationale": "Directly stated in evidence."
+          },
+          {
+            "text": "Rebuilt on-call rotation reducing pages from six per week to roughly one per week",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba",
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Evidence confirms rebuilding on-call rotation with pages dropping from six per week to roughly one per week."
+          },
+          {
+            "text": "Introduced Apache Kafka as backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Directly stated in evidence."
+          },
+          {
+            "text": "Languages: Python, Go",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Evidence states 'Python and Go day to day.'"
+          },
+          {
+            "text": "Infrastructure: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, Docker, Kubernetes, GitHub Actions",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "c86d9e2b9b5d4021a1b946a4679503ba",
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "AWS services (Lambda, EventBridge, SQS, ECS Fargate, EC2), Terraform, and GitHub Actions are mentioned in the work descriptions. Docker and Kubernetes are confirmed in evidence as used in production."
+          },
+          {
+            "text": "Data & Messaging: Apache Kafka, Avro, PostgreSQL, Redis",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Kafka and Avro are confirmed via the cross-team data exchange work. Postgres and Redis are confirmed as used in production."
+          },
+          {
+            "text": "Observability: Datadog",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "38a89216f2e24ba4b772fe9564e92c45"
+            ],
+            "rationale": "Evidence mentions consumer-lag alerting in Datadog."
+          }
+        ],
+        "score": 100.0,
+        "iteration": 1
+      },
+      "ats": {
+        "score": 0.0,
+        "matched_keywords": [],
+        "missing_keywords": [
+          "Swift",
+          "SwiftUI",
+          "UIKit",
+          "Core Data",
+          "AVFoundation",
+          "XCTest",
+          "Metal",
+          "iOS",
+          "memory management",
+          "battery profiling",
+          "video playback",
+          "offline download",
+          "native iOS apps",
+          "App Store",
+          "consumer apps",
+          "ARKit",
+          "Objective-C"
+        ],
+        "notes": null,
+        "iteration": 1
+      }
+    }
+  ]
+}

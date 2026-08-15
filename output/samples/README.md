@@ -16,47 +16,76 @@ Each run directory holds five files:
 
 ## Results
 
+<!-- INDEX:START -->
 | Scenario | Result | Trust /90 | ATS /85 | Drafts | Claims flagged |
 |---|---|---|---|---|---|
-| [1-strong-match](sample-1-strong-match-cc2ac524/20260807-195015-senior-backend-engineer-platform-7d5246e6/evaluation.md) | **PASS** | 91 | 95 | 1 | 3 |
-| [2-partial-match](sample-2-partial-match-0ffef33d/20260807-195219-backend-engineer-observability-platform-eb727492/evaluation.md) | **FAIL** | 100 | 42 | 4 | 0 |
-| [3-inflation-pressure](sample-3-inflation-pressure-d46a4c0c/20260807-195423-staff-engineer-platform-organization-a2ba1b78/evaluation.md) | **FAIL** | 97 | 17 | 4 | 1 |
-| [4-wrong-domain](sample-4-wrong-domain-d5b7eef7/20260807-195558-senior-ios-engineer-consumer-apps-c16d5cc0/evaluation.md) | **FAIL** | 100 | 0 | 4 | 0 |
+| [1-strong-match](sample-1-strong-match-cc2ac524/20260815-042901-senior-backend-engineer-platform-27f60f59/evaluation.md) | **PASS** | 93 | 95 | 2 | 2 |
+| [2-partial-match](sample-2-partial-match-0ffef33d/20260815-043002-backend-engineer-observability-platform-6bc35616/evaluation.md) | **FAIL** | 81 | 63 | 2 | 6 |
+| [3-inflation-pressure](sample-3-inflation-pressure-d46a4c0c/20260815-043109-staff-engineer-platform-organization-e5e78462/evaluation.md) | **FAIL** | 83 | 42 | 2 | 4 |
+| [4-wrong-domain](sample-4-wrong-domain-d5b7eef7/20260815-043204-senior-ios-engineer-consumer-apps-72f50be0/evaluation.md) | **FAIL** | 100 | 0 | 2 | 0 |
+<!-- INDEX:END -->
 
 Three of four fail. That is the point — a quality gate that never rejects
 anything is decoration. What matters is *how* each one fails.
+
+Every scenario now runs exactly two drafts: the quality loop no longer stops
+the instant a draft passes, so even Scenario 1's already-passing first draft
+got a second one anyway, then the run kept whichever draft actually scored
+best (see `docs/architecture/decisions/0016-quality-loop-runs-to-cap-ships-best-draft.md`).
 
 ### 1-strong-match — PASS
 
 *Posting asks for what the evidence documents.*
 
-The happy path: the first draft already cleared both thresholds.
+The first draft passed (Trust 93/90, ATS 95/85). The second draft passed too
+— Trust rose to 100, but ATS dropped to 90 — so the run correctly exported
+the *first* draft instead of the one that ran last. A clean, real example of
+the selection rule: among two passing drafts, the higher-ATS one ships.
 
-`Trust 91/90 · ATS 95/85 · 1 draft · 4 LLM calls`
+`Trust 93/90 · ATS 95/85 · 2 drafts (1st exported) · 6 LLM calls`
 
 ### 2-partial-match — FAIL
 
 *An observability-platform role for a generalist backend engineer.*
 
-Real overlap, real gaps. Every claim stayed honest (Trust 100) across all four drafts, but ATS still fell well short — the evidence has no observability-vendor specifics (OpenTelemetry, Prometheus, Grafana, gRPC), and the writer never invented them. This is the honest middle case: the loop cannot manufacture domain experience the candidate does not have, and it does not pretend otherwise.
+Real overlap, real gaps. No claim was fabricated outright, but six of sixteen
+came back PARTIALLY_SUPPORTED rather than SUPPORTED, so Trust landed at 81 —
+below the 90 bar — on top of an ATS gap the evidence genuinely can't close
+(no OpenTelemetry, Prometheus, Grafana, or gRPC in this candidate's history).
+This is the honest middle case: the loop cannot manufacture domain experience
+the candidate does not have, and it does not pretend otherwise.
 
-`Trust 100/90 · ATS 42/85 · 4 drafts · 10 LLM calls`
+`Trust 81/90 · ATS 63/85 · 2 drafts · 6 LLM calls`
 
 ### 3-inflation-pressure — FAIL
 
 *A Staff-level posting asking for scope one step beyond the evidence: 15+ years, teams of 20+, org-wide strategy.*
 
-**The clearest demonstration in this folder.** That gap is exactly the pressure that produces quiet exaggeration on a real résumé — and the writer did stretch, producing plausible filler like *"establishing shared systems architecture standards"*. The Trust Harness flagged it PARTIALLY_SUPPORTED rather than letting it pass as fact. Generation and verification being separate steps is what makes that catchable; a single self-checking prompt would have passed its own prose.
+**The clearest demonstration in this folder.** That gap is exactly the
+pressure that produces quiet exaggeration on a real résumé — and this time
+the writer overstated three claims outright, marked UNSUPPORTED, including
+*"establishing the backend technical direction for order fulfillment
+systems"* and *"defining the architectural roadmap for platform-wide event
+streaming"*, plus a fourth claim softened to PARTIALLY_SUPPORTED. The Trust
+Harness caught all four rather than letting any read as fact — pulling Trust
+down to 83, itself now below the 90 bar. Generation and verification being
+separate steps is what makes that catchable; a single self-checking prompt
+would have passed its own prose.
 
-`Trust 97/90 · ATS 17/85 · 4 drafts · 10 LLM calls`
+`Trust 83/90 · ATS 42/85 · 2 drafts · 6 LLM calls`
 
 ### 4-wrong-domain — FAIL
 
 *An iOS posting for a backend engineer.*
 
-**Trust 100, ATS 0.** The writer refused to invent iOS experience, so every claim it made is supported — and the résumé matches none of the required keywords. The system fails the candidate rather than lying for them. That trade is the entire product thesis, visible in two numbers.
+**Trust 100, ATS 0.** The writer refused to invent iOS experience, so every
+claim it made is supported — and the résumé matches none of the required
+keywords. Identical on both drafts: rewriting again didn't change the
+outcome, because there was no honest way to close an ATS gap this large. The
+system fails the candidate rather than lying for them. That trade is the
+entire product thesis, visible in two numbers.
 
-`Trust 100/90 · ATS 0/85 · 4 drafts · 10 LLM calls`
+`Trust 100/90 · ATS 0/85 · 2 drafts · 6 LLM calls`
 
 ## Reproducing
 

@@ -1,0 +1,721 @@
+{
+  "resume_id": "6bc35616df924ed49183d4bbaae65ea8",
+  "user_id": "sample-2-partial-match",
+  "job_id": null,
+  "iteration": 1,
+  "exported_iteration": 0,
+  "passed": false,
+  "gate": {
+    "min_trust_score": 90.0,
+    "min_ats_score": 85.0,
+    "max_iterations": 1
+  },
+  "trust": {
+    "claims": [
+      {
+        "text": "5+ years of experience building high-throughput distributed systems in Go and Python",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "d2a25c41768f4be5be03902035a8514d",
+          "ac8db61408504374b267566ec7017999"
+        ],
+        "rationale": "The role at Northwind Logistics spans 2021–2026 (5 years), and evidence confirms daily use of Go and Python and building event-driven distributed systems."
+      },
+      {
+        "text": "Designing event-driven pipelines processing 40M+ events/day",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence states 'event-driven order pipeline on AWS Lambda and EventBridge that processes 40 million events per day.'"
+      },
+      {
+        "text": "Introducing Kafka-based telemetry and data exchange infrastructure",
+        "category": "EXPERIENCE",
+        "status": "PARTIALLY_SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999"
+        ],
+        "rationale": "Evidence supports Kafka as backbone for cross-team data exchange with consumer-lag alerting, but does not mention 'telemetry' specifically. The alerting is monitoring, not telemetry infrastructure per se."
+      },
+      {
+        "text": "Operating services on Kubernetes and PostgreSQL in production",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999"
+        ],
+        "rationale": "Evidence explicitly states 'Postgres, Redis, Docker, Kubernetes in production.'"
+      },
+      {
+        "text": "Experienced with on-call rotation ownership, defining alerting strategies, and driving reliability improvements that reduced incident pages by 85%",
+        "category": "ACHIEVEMENT",
+        "status": "PARTIALLY_SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999",
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence confirms on-call rotation ownership and pages dropping from ~6/week to ~1/week (roughly 83% reduction). The 85% figure is close but slightly overstated. 'Defining alerting strategies' is not explicitly stated in evidence, though rebuilding the on-call rotation is confirmed."
+      },
+      {
+        "text": "Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting, enabling reliable high-throughput ingestion across distributed services",
+        "category": "ACHIEVEMENT",
+        "status": "PARTIALLY_SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999"
+        ],
+        "rationale": "Evidence confirms Kafka with 14 topics, schema-registry-enforced Avro contracts, and consumer-lag alerting. However, 'enabling reliable high-throughput ingestion across distributed services' is added language not in the evidence."
+      },
+      {
+        "text": "Designed and shipped an event-driven order pipeline processing 40 million events per day on AWS, cutting p99 latency from 900ms to 120ms by replacing synchronous fan-out with an asynchronous buffer",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence states the pipeline processes 40M events/day, cut p99 from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer. 'Asynchronous buffer' is a fair restatement of 'SQS buffer.'"
+      },
+      {
+        "text": "Operated production services on Kubernetes, PostgreSQL, Redis, and Docker; wrote Go and Python daily for backend services and tooling",
+        "category": "EXPERIENCE",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999"
+        ],
+        "rationale": "Evidence explicitly states 'Python and Go day to day. Postgres, Redis, Docker, Kubernetes in production.'"
+      },
+      {
+        "text": "Rebuilt the on-call rotation and alerting strategy after a quarter averaging six pages/week; reduced pages to roughly one per week through improved SLOs and monitoring",
+        "category": "ACHIEVEMENT",
+        "status": "PARTIALLY_SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999",
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence confirms rebuilding on-call rotation, six pages/week dropping to one. However, 'alerting strategy' and 'improved SLOs and monitoring' are not mentioned in the evidence."
+      },
+      {
+        "text": "Owned CI/CD platform for 40 engineers: autoscaling GitHub Actions runners with shared caching layer that cut mean build time from 11 minutes to 4 minutes",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence states 'Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 and a shared caching layer that cut mean build time from 11 minutes to 4.'"
+      },
+      {
+        "text": "Authored Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook used by the on-call team",
+        "category": "ACHIEVEMENT",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence states 'Wrote the Terraform modules and the blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses.'"
+      },
+      {
+        "text": "Led a team of five engineers through two performance cycles, mentoring on distributed systems best practices and operational excellence",
+        "category": "EXPERIENCE",
+        "status": "PARTIALLY_SUPPORTED",
+        "evidence_chunk_ids": [
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence confirms 'Led a team of five engineers through two performance cycles.' However, 'mentoring on distributed systems best practices and operational excellence' is not mentioned in the evidence."
+      },
+      {
+        "text": "Languages: Go, Python",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999"
+        ],
+        "rationale": "Evidence confirms 'Python and Go day to day.'"
+      },
+      {
+        "text": "Infrastructure & Data: Kafka, Kubernetes, PostgreSQL, Redis, Docker, AWS (Lambda, EventBridge, SQS, ECS Fargate)",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999",
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence confirms Kafka, Kubernetes, PostgreSQL, Redis, Docker from one chunk, and AWS Lambda, EventBridge, SQS (buffer), ECS Fargate from the other."
+      },
+      {
+        "text": "Observability & Reliability: Datadog, consumer-lag alerting, on-call rotation management, SLO-driven incident reduction",
+        "category": "SKILL",
+        "status": "PARTIALLY_SUPPORTED",
+        "evidence_chunk_ids": [
+          "ac8db61408504374b267566ec7017999",
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence confirms Datadog (consumer-lag alerting in Datadog), consumer-lag alerting, and on-call rotation management. However, 'SLO-driven incident reduction' is not mentioned in the evidence."
+      },
+      {
+        "text": "CI/CD & IaC: GitHub Actions, Terraform, blue/green deployments",
+        "category": "SKILL",
+        "status": "SUPPORTED",
+        "evidence_chunk_ids": [
+          "d2a25c41768f4be5be03902035a8514d"
+        ],
+        "rationale": "Evidence confirms GitHub Actions, Terraform modules, and blue/green deploy pipeline."
+      }
+    ],
+    "score": 81.25,
+    "iteration": 0
+  },
+  "ats": {
+    "score": 63.16,
+    "matched_keywords": [
+      "Backend Engineer",
+      "Observability",
+      "Telemetry",
+      "Go",
+      "Python",
+      "Distributed systems",
+      "Kafka",
+      "Kubernetes",
+      "PostgreSQL",
+      "SLOs",
+      "Ingestion",
+      "On-call"
+    ],
+    "missing_keywords": [
+      "Time-series data",
+      "OpenTelemetry",
+      "gRPC",
+      "Prometheus",
+      "Grafana",
+      "Metrics",
+      "Traces"
+    ],
+    "notes": null,
+    "iteration": 0
+  },
+  "rejection_reason": "Trust score 81 (needs >= 90); ATS score 63 (needs >= 85).",
+  "improvement_suggestions": "Soften these claims to match what the evidence actually supports:\n- Introducing Kafka-based telemetry and data exchange infrastructure\n- Experienced with on-call rotation ownership, defining alerting strategies, and driving reliability improvements that reduced incident pages by 85%\n- Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting, enabling reliable high-throughput ingestion across distributed services\n- Rebuilt the on-call rotation and alerting strategy after a quarter averaging six pages/week; reduced pages to roughly one per week through improved SLOs and monitoring\n- Led a team of five engineers through two performance cycles, mentoring on distributed systems best practices and operational excellence\n- Observability & Reliability: Datadog, consumer-lag alerting, on-call rotation management, SLO-driven incident reduction\nWhere the evidence genuinely supports them, incorporate these target keywords the draft is missing: Time-series data, OpenTelemetry, gRPC, Prometheus, Grafana, Metrics, Traces",
+  "usage": {
+    "models": [
+      {
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 10420,
+        "output_tokens": 5442,
+        "calls": 6
+      }
+    ],
+    "timings": [
+      {
+        "node": "analyze_job",
+        "duration_ms": 5190.930125012528
+      },
+      {
+        "node": "load_candidate_profile",
+        "duration_ms": 4082.466457999544
+      },
+      {
+        "node": "retrieve_evidence",
+        "duration_ms": 9.163874987279996
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 10515.529957978288
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 20132.15366701479
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.07266600732691586
+      },
+      {
+        "node": "prepare_rewrite",
+        "duration_ms": 0.01812499249354005
+      },
+      {
+        "node": "write_resume",
+        "duration_ms": 5990.958791022422
+      },
+      {
+        "node": "score_trust",
+        "duration_ms": 15681.467749993317
+      },
+      {
+        "node": "score_ats",
+        "duration_ms": 0.11566598550416529
+      }
+    ],
+    "node_calls": [
+      {
+        "node": "analyze_job",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1247,
+        "output_tokens": 468,
+        "cost_usd": 0.053805
+      },
+      {
+        "node": "load_candidate_profile",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1247,
+        "output_tokens": 217,
+        "cost_usd": 0.03498
+      },
+      {
+        "node": "write_resume",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1596,
+        "output_tokens": 537,
+        "cost_usd": 0.064215
+      },
+      {
+        "node": "score_trust",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 2279,
+        "output_tokens": 2004,
+        "cost_usd": 0.184485
+      },
+      {
+        "node": "write_resume",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 1857,
+        "output_tokens": 452,
+        "cost_usd": 0.061755
+      },
+      {
+        "node": "score_trust",
+        "model": "global.anthropic.claude-opus-4-6-v1",
+        "input_tokens": 2194,
+        "output_tokens": 1764,
+        "cost_usd": 0.16521
+      }
+    ],
+    "total_duration_ms": 61613.405957992654,
+    "cost_usd": 0.56445
+  },
+  "iterations": [
+    {
+      "iteration": 0,
+      "draft": {
+        "summary": "Backend Engineer with 5+ years of experience building high-throughput distributed systems in Go and Python. Proven track record designing event-driven pipelines processing 40M+ events/day, introducing Kafka-based telemetry and data exchange infrastructure, and operating services on Kubernetes and PostgreSQL in production. Experienced with on-call rotation ownership, defining alerting strategies, and driving reliability improvements that reduced incident pages by 85%.",
+        "sections": [
+          {
+            "heading": "Senior Backend Engineer, Northwind Logistics (2021–2026)",
+            "bullets": [
+              "Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting, enabling reliable high-throughput ingestion across distributed services",
+              "Designed and shipped an event-driven order pipeline processing 40 million events per day on AWS, cutting p99 latency from 900ms to 120ms by replacing synchronous fan-out with an asynchronous buffer",
+              "Operated production services on Kubernetes, PostgreSQL, Redis, and Docker; wrote Go and Python daily for backend services and tooling",
+              "Rebuilt the on-call rotation and alerting strategy after a quarter averaging six pages/week; reduced pages to roughly one per week through improved SLOs and monitoring",
+              "Owned CI/CD platform for 40 engineers: autoscaling GitHub Actions runners with shared caching layer that cut mean build time from 11 minutes to 4 minutes",
+              "Authored Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook used by the on-call team",
+              "Led a team of five engineers through two performance cycles, mentoring on distributed systems best practices and operational excellence"
+            ]
+          },
+          {
+            "heading": "Technical Skills",
+            "bullets": [
+              "Languages: Go, Python",
+              "Infrastructure & Data: Kafka, Kubernetes, PostgreSQL, Redis, Docker, AWS (Lambda, EventBridge, SQS, ECS Fargate)",
+              "Observability & Reliability: Datadog, consumer-lag alerting, on-call rotation management, SLO-driven incident reduction",
+              "CI/CD & IaC: GitHub Actions, Terraform, blue/green deployments"
+            ]
+          }
+        ],
+        "iteration": 0
+      },
+      "trust": {
+        "claims": [
+          {
+            "text": "5+ years of experience building high-throughput distributed systems in Go and Python",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d",
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "The role at Northwind Logistics spans 2021–2026 (5 years), and evidence confirms daily use of Go and Python and building event-driven distributed systems."
+          },
+          {
+            "text": "Designing event-driven pipelines processing 40M+ events/day",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states 'event-driven order pipeline on AWS Lambda and EventBridge that processes 40 million events per day.'"
+          },
+          {
+            "text": "Introducing Kafka-based telemetry and data exchange infrastructure",
+            "category": "EXPERIENCE",
+            "status": "PARTIALLY_SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence supports Kafka as backbone for cross-team data exchange with consumer-lag alerting, but does not mention 'telemetry' specifically. The alerting is monitoring, not telemetry infrastructure per se."
+          },
+          {
+            "text": "Operating services on Kubernetes and PostgreSQL in production",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence explicitly states 'Postgres, Redis, Docker, Kubernetes in production.'"
+          },
+          {
+            "text": "Experienced with on-call rotation ownership, defining alerting strategies, and driving reliability improvements that reduced incident pages by 85%",
+            "category": "ACHIEVEMENT",
+            "status": "PARTIALLY_SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999",
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence confirms on-call rotation ownership and pages dropping from ~6/week to ~1/week (roughly 83% reduction). The 85% figure is close but slightly overstated. 'Defining alerting strategies' is not explicitly stated in evidence, though rebuilding the on-call rotation is confirmed."
+          },
+          {
+            "text": "Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting, enabling reliable high-throughput ingestion across distributed services",
+            "category": "ACHIEVEMENT",
+            "status": "PARTIALLY_SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence confirms Kafka with 14 topics, schema-registry-enforced Avro contracts, and consumer-lag alerting. However, 'enabling reliable high-throughput ingestion across distributed services' is added language not in the evidence."
+          },
+          {
+            "text": "Designed and shipped an event-driven order pipeline processing 40 million events per day on AWS, cutting p99 latency from 900ms to 120ms by replacing synchronous fan-out with an asynchronous buffer",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states the pipeline processes 40M events/day, cut p99 from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer. 'Asynchronous buffer' is a fair restatement of 'SQS buffer.'"
+          },
+          {
+            "text": "Operated production services on Kubernetes, PostgreSQL, Redis, and Docker; wrote Go and Python daily for backend services and tooling",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence explicitly states 'Python and Go day to day. Postgres, Redis, Docker, Kubernetes in production.'"
+          },
+          {
+            "text": "Rebuilt the on-call rotation and alerting strategy after a quarter averaging six pages/week; reduced pages to roughly one per week through improved SLOs and monitoring",
+            "category": "ACHIEVEMENT",
+            "status": "PARTIALLY_SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999",
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence confirms rebuilding on-call rotation, six pages/week dropping to one. However, 'alerting strategy' and 'improved SLOs and monitoring' are not mentioned in the evidence."
+          },
+          {
+            "text": "Owned CI/CD platform for 40 engineers: autoscaling GitHub Actions runners with shared caching layer that cut mean build time from 11 minutes to 4 minutes",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states 'Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 and a shared caching layer that cut mean build time from 11 minutes to 4.'"
+          },
+          {
+            "text": "Authored Terraform modules and blue/green deploy pipeline for billing service migration onto ECS Fargate, plus the rollback runbook used by the on-call team",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states 'Wrote the Terraform modules and the blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses.'"
+          },
+          {
+            "text": "Led a team of five engineers through two performance cycles, mentoring on distributed systems best practices and operational excellence",
+            "category": "EXPERIENCE",
+            "status": "PARTIALLY_SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence confirms 'Led a team of five engineers through two performance cycles.' However, 'mentoring on distributed systems best practices and operational excellence' is not mentioned in the evidence."
+          },
+          {
+            "text": "Languages: Go, Python",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence confirms 'Python and Go day to day.'"
+          },
+          {
+            "text": "Infrastructure & Data: Kafka, Kubernetes, PostgreSQL, Redis, Docker, AWS (Lambda, EventBridge, SQS, ECS Fargate)",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999",
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence confirms Kafka, Kubernetes, PostgreSQL, Redis, Docker from one chunk, and AWS Lambda, EventBridge, SQS (buffer), ECS Fargate from the other."
+          },
+          {
+            "text": "Observability & Reliability: Datadog, consumer-lag alerting, on-call rotation management, SLO-driven incident reduction",
+            "category": "SKILL",
+            "status": "PARTIALLY_SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999",
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence confirms Datadog (consumer-lag alerting in Datadog), consumer-lag alerting, and on-call rotation management. However, 'SLO-driven incident reduction' is not mentioned in the evidence."
+          },
+          {
+            "text": "CI/CD & IaC: GitHub Actions, Terraform, blue/green deployments",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence confirms GitHub Actions, Terraform modules, and blue/green deploy pipeline."
+          }
+        ],
+        "score": 81.25,
+        "iteration": 0
+      },
+      "ats": {
+        "score": 63.16,
+        "matched_keywords": [
+          "Backend Engineer",
+          "Observability",
+          "Telemetry",
+          "Go",
+          "Python",
+          "Distributed systems",
+          "Kafka",
+          "Kubernetes",
+          "PostgreSQL",
+          "SLOs",
+          "Ingestion",
+          "On-call"
+        ],
+        "missing_keywords": [
+          "Time-series data",
+          "OpenTelemetry",
+          "gRPC",
+          "Prometheus",
+          "Grafana",
+          "Metrics",
+          "Traces"
+        ],
+        "notes": null,
+        "iteration": 0
+      }
+    },
+    {
+      "iteration": 1,
+      "draft": {
+        "summary": "Backend Engineer with production experience in Go, Python, Kafka, PostgreSQL, and Kubernetes. Proven track record building event-driven distributed systems processing tens of millions of events daily, introducing Kafka-based data exchange infrastructure, and improving operational reliability through on-call rotation ownership and alerting improvements.",
+        "sections": [
+          {
+            "heading": "Senior Backend Engineer, Northwind Logistics (2021–2026)",
+            "bullets": [
+              "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day; cut p99 latency from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer",
+              "Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+              "Rebuilt the on-call rotation after a quarter averaging six pages/week; reduced pages to roughly one per week through improved alerting and monitoring",
+              "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that cut mean build time from 11 minutes to 4",
+              "Wrote Terraform modules and the blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses",
+              "Led a team of five engineers through two performance cycles"
+            ]
+          },
+          {
+            "heading": "Technical Skills",
+            "bullets": [
+              "Languages: Go, Python",
+              "Infrastructure & Data: Kafka, PostgreSQL, Redis, Docker, Kubernetes",
+              "Observability & Reliability: Datadog, consumer-lag alerting, on-call rotation management",
+              "Cloud & CI/CD: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), GitHub Actions, Terraform"
+            ]
+          }
+        ],
+        "iteration": 1
+      },
+      "trust": {
+        "claims": [
+          {
+            "text": "Backend Engineer with production experience in Go, Python, Kafka, PostgreSQL, and Kubernetes",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence states 'Python and Go day to day. Postgres, Redis, Docker, Kubernetes in production.' and mentions Kafka introduction, supporting production experience in all listed technologies."
+          },
+          {
+            "text": "Building event-driven distributed systems processing tens of millions of events daily",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states 'event-driven order pipeline on AWS Lambda and EventBridge that processes 40 million events per day', which is tens of millions."
+          },
+          {
+            "text": "Introducing Kafka-based data exchange infrastructure",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence states 'Introduced Apache Kafka as the backbone for cross-team data exchange'."
+          },
+          {
+            "text": "Improving operational reliability through on-call rotation ownership and alerting improvements",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999",
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence mentions rebuilding the on-call rotation and reducing pages from six per week to roughly one per week."
+          },
+          {
+            "text": "Senior Backend Engineer, Northwind Logistics (2021–2026)",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence explicitly states 'Senior Backend Engineer, Northwind Logistics (2021-2026)'."
+          },
+          {
+            "text": "Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge processing 40 million events per day",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states exactly this: 'Designed and shipped an event-driven order pipeline on AWS Lambda and EventBridge that processes 40 million events per day'."
+          },
+          {
+            "text": "Cut p99 latency from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states exactly: 'Cut p99 latency from 900ms to 120ms by replacing synchronous fan-out with an SQS buffer'."
+          },
+          {
+            "text": "Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence states exactly: 'Introduced Apache Kafka as the backbone for cross-team data exchange: 14 topics with schema-registry-enforced Avro contracts and consumer-lag alerting in Datadog'."
+          },
+          {
+            "text": "Rebuilt the on-call rotation after a quarter averaging six pages/week; reduced pages to roughly one per week through improved alerting and monitoring",
+            "category": "ACHIEVEMENT",
+            "status": "PARTIALLY_SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d",
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence supports rebuilding the on-call rotation and reducing pages from six to roughly one per week. However, the draft adds 'through improved alerting and monitoring' as the mechanism, which is not stated in the evidence."
+          },
+          {
+            "text": "Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 with a shared caching layer that cut mean build time from 11 minutes to 4",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states: 'Owned the CI/CD platform for 40 engineers: GitHub Actions runners on autoscaling EC2 and a shared caching layer that cut mean build time from 11 minutes to 4'."
+          },
+          {
+            "text": "Wrote Terraform modules and the blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses",
+            "category": "ACHIEVEMENT",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states: 'Wrote the Terraform modules and the blue/green deploy pipeline for the billing service migration onto ECS Fargate, plus the rollback runbook the on-call team still uses'."
+          },
+          {
+            "text": "Led a team of five engineers through two performance cycles",
+            "category": "EXPERIENCE",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence states exactly: 'Led a team of five engineers through two performance cycles'."
+          },
+          {
+            "text": "Languages: Go, Python",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence states 'Python and Go day to day'."
+          },
+          {
+            "text": "Infrastructure & Data: Kafka, PostgreSQL, Redis, Docker, Kubernetes",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999"
+            ],
+            "rationale": "Evidence states 'Postgres, Redis, Docker, Kubernetes in production' and mentions Kafka introduction."
+          },
+          {
+            "text": "Observability & Reliability: Datadog, consumer-lag alerting, on-call rotation management",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "ac8db61408504374b267566ec7017999",
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence mentions 'consumer-lag alerting in Datadog' and rebuilding the on-call rotation."
+          },
+          {
+            "text": "Cloud & CI/CD: AWS (Lambda, EventBridge, SQS, ECS Fargate, EC2), GitHub Actions, Terraform",
+            "category": "SKILL",
+            "status": "SUPPORTED",
+            "evidence_chunk_ids": [
+              "d2a25c41768f4be5be03902035a8514d"
+            ],
+            "rationale": "Evidence mentions AWS Lambda, EventBridge, SQS buffer, ECS Fargate, autoscaling EC2, GitHub Actions runners, and Terraform modules."
+          }
+        ],
+        "score": 96.88,
+        "iteration": 1
+      },
+      "ats": {
+        "score": 47.37,
+        "matched_keywords": [
+          "Backend Engineer",
+          "Observability",
+          "Go",
+          "Python",
+          "Distributed systems",
+          "Kafka",
+          "Kubernetes",
+          "PostgreSQL",
+          "On-call"
+        ],
+        "missing_keywords": [
+          "Telemetry",
+          "Time-series data",
+          "OpenTelemetry",
+          "gRPC",
+          "Prometheus",
+          "Grafana",
+          "SLOs",
+          "Metrics",
+          "Traces",
+          "Ingestion"
+        ],
+        "notes": null,
+        "iteration": 1
+      }
+    }
+  ]
+}

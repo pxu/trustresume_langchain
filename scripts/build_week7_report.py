@@ -162,7 +162,7 @@ def make_pipeline_diagram(tmpdir: Path) -> Path:
         xytext=(6.3 + box_w / 2, y - 0.15),
         arrowprops={"arrowstyle": "-|>", "color": ORANGE, "lw": 1.3, "connectionstyle": "arc3,rad=-0.35"},
     )
-    ax.text(5.55, 1.55, "rewrite (≤3×) if\nTrust < 90 or ATS < 85", ha="center", fontsize=7.5, color=ORANGE)
+    ax.text(5.55, 1.55, "always rewrites N more times;\nkeeps the best-scoring draft", ha="center", fontsize=7.5, color=ORANGE)
 
     # Candidate Profile agent, feeding the writer, off to the side (cached).
     ax.add_patch(
@@ -207,8 +207,8 @@ def make_results_chart(tmpdir: Path) -> Path:
         ax1.text(i + width / 2, a + 0.03, f"{a:.2f}", ha="center", fontsize=7.5)
 
     scenarios = ["1-strong", "2-partial", "3-inflation", "4-wrong-\ndomain"]
-    trust = [94, 94, 92, 100]
-    ats = [90, 53, 50, 0]
+    trust = [93, 81, 83, 100]
+    ats = [95, 63, 42, 0]
     x2 = range(len(scenarios))
     ax2.bar([i - width / 2 for i in x2], trust, width, label="Trust", color=BLUE)
     ax2.bar([i + width / 2 for i in x2], ats, width, label="ATS", color=ORANGE)
@@ -280,13 +280,15 @@ def build(tmpdir: Path) -> Document:  # type: ignore[no-untyped-def]
         "direct response to the risk that an unconstrained LLM embellishes "
         "a resume. This report covers a from-scratch reimplementation of an "
         "earlier pydantic-ai/Qdrant capstone on LangChain, LangGraph, and "
-        "ChromaDB: six agents coordinated by a quality loop that rewrites a "
-        "draft up to three times against a Trust gate and an ATS gate. An "
-        "offline evaluation harness scores the system itself: hybrid "
+        "ChromaDB: six agents coordinated by a quality loop that always "
+        "rewrites a draft a configurable number of times against a Trust "
+        "gate and an ATS gate, regardless of whether an earlier draft "
+        "already passed, then ships whichever draft actually scored best. "
+        "An offline evaluation harness scores the system itself: hybrid "
         "retrieval reaches recall@8 1.000/MRR 0.938, and the Trust Harness, "
         "after a calibration fix documented here, classifies claims at "
         "accuracy/macro-F1 0.833 (up from 0.500/0.489) with zero dangerous "
-        "false-pass errors either way. A 474-test suite holds 99.4% "
+        "false-pass errors either way. A 500-test suite holds 99.2% "
         "coverage, and four real Bedrock-hosted runs show the thesis "
         "directly: the system would rather fail a candidate than invent "
         "experience they lack. The report closes with the challenges this "
@@ -334,10 +336,14 @@ def build(tmpdir: Path) -> Document:  # type: ignore[no-untyped-def]
         "Profile, they feed a quality loop: the Resume Writer drafts, the "
         "Trust Harness classifies every claim as SUPPORTED, "
         "PARTIALLY_SUPPORTED, or UNSUPPORTED against the evidence, and ATS "
-        "Evaluation scores keyword coverage. Trust ≥ 90 and ATS ≥ 85 passes; "
-        "otherwise deterministic feedback drives a rewrite, up to three "
-        "times, before the run exports its best attempt regardless of "
-        "outcome.",
+        "Evaluation scores keyword coverage against Trust ≥ 90 and ATS ≥ 85. "
+        "The loop does not stop the moment a draft passes: deterministic "
+        "feedback drives another rewrite regardless, for a configurable "
+        "number of rounds (currently one), because a later rewrite can "
+        "still improve ATS coverage without spending any more of the Trust "
+        "budget. The run then exports whichever draft actually scored best "
+        "— a passing draft always beats a failing one, and ties break on "
+        "ATS, not Trust, since every passer already cleared that bar.",
     )
     fig1 = make_pipeline_diagram(tmpdir)
     add_figure(doc, fig1, "Figure 1. The generation pipeline: five sequential agents plus a cached sixth, orchestrated by a LangGraph quality loop.")
@@ -358,7 +364,17 @@ def build(tmpdir: Path) -> Document:  # type: ignore[no-untyped-def]
         "a stronger one adjudicates trust. Every route resolves its caller "
         "from a request header (ADR-0014) instead of one hardcoded demo "
         "user, making the isolation boundary testable rather than merely "
-        "asserted.",
+        "asserted. An opt-in checkpointing layer (ADR-0015) demonstrates "
+        "LangGraph's durable-execution capability: a crashed run resumes "
+        "from its last completed node instead of re-paying for "
+        "already-completed LLM calls, off by default so the pipeline above "
+        "is unchanged unless a caller opts in. The quality loop's stopping "
+        "rule changed since the original port (ADR-0016): it no longer ends "
+        "the instant a draft passes, since a later rewrite can still find a "
+        "better-tailored one without spending any more of the Trust budget "
+        "a passing draft already has; the run keeps whichever draft "
+        "actually scores best rather than whichever one happened to pass "
+        "first.",
     )
 
     add_subheading(doc, "2.3 Development process")
@@ -393,8 +409,8 @@ def build(tmpdir: Path) -> Document:  # type: ignore[no-untyped-def]
     add_subheading(doc, "3.1 Automated test suite and CI")
     add_body(
         doc,
-        "The suite holds 474 passing tests (9 live-marked tests deselected "
-        "by default) at 99.4% coverage against a 95% gate. CI runs lint, a "
+        "The suite holds 500 passing tests (9 live-marked tests deselected "
+        "by default) at 99.2% coverage against a 95% gate. CI runs lint, a "
         "format check, strict mypy, and the full suite on Python 3.11 and "
         "3.13 from a locked dependency file on every push and pull request.",
     )
@@ -443,22 +459,25 @@ def build(tmpdir: Path) -> Document:  # type: ignore[no-untyped-def]
     add_body(
         doc,
         "One synthetic candidate was run against four job postings, real "
-        "Bedrock end to end. Three of four fail the quality gate. That's "
-        "deliberate: a gate that never rejects anything is decoration. "
-        "Scenario 4 is the clearest evidence for the project's design bet: "
-        "given an iOS posting for a backend candidate, the writer refused "
-        "to invent iOS experience, so every claim was supported (Trust 100) "
-        "and the resume matched no required keyword (ATS 0). The system "
+        "Bedrock end to end, each drafted twice — the loop no longer stops "
+        "the instant a draft passes (ADR-0016), so even Scenario 1's "
+        "already-passing first attempt got a second draft anyway. Three of "
+        "four still fail the quality gate. That's deliberate: a gate that "
+        "never rejects anything is decoration. Scenario 4 is the clearest "
+        "evidence for the project's design bet: given an iOS posting for a "
+        "backend candidate, the writer refused to invent iOS experience, so "
+        "every claim was supported (Trust 100) and the resume matched no "
+        "required keyword (ATS 0), identically on both drafts. The system "
         "chose to fail the candidate rather than lie for them.",
     )
     add_table(
         doc,
         ["Scenario", "Result", "Trust /90", "ATS /85", "Drafts", "LLM calls", "Cost"],
         [
-            ["1-strong-match", "PASS", "94", "90", "1", "4", "$0.32"],
-            ["2-partial-match", "FAIL", "94", "53", "4", "10", "$1.07"],
-            ["3-inflation-pressure", "FAIL", "92", "50", "4", "10", "$1.06"],
-            ["4-wrong-domain", "FAIL", "100", "0", "4", "10", "$0.87"],
+            ["1-strong-match", "PASS", "93", "95", "2", "6", "$0.53"],
+            ["2-partial-match", "FAIL", "81", "63", "2", "6", "$0.56"],
+            ["3-inflation-pressure", "FAIL", "83", "42", "2", "6", "$0.60"],
+            ["4-wrong-domain", "FAIL", "100", "0", "2", "6", "$0.51"],
         ],
     )
     fig2 = make_results_chart(tmpdir)
@@ -467,11 +486,26 @@ def build(tmpdir: Path) -> Document:  # type: ignore[no-untyped-def]
         doc,
         "Scenario 3 shows the checks working under pressure: asked for "
         "staff-level scope the evidence doesn't fully support, the writer "
-        "produced plausible filler, and the Trust Harness flagged all three "
-        "inflated claims PARTIALLY_SUPPORTED rather than letting them read "
-        "as fact. A self-checking prompt would have passed its own prose. "
-        "Per-run cost ranged from $0.32 to $1.07 across four to ten LLM "
-        "calls, via per-node telemetry (ADR-0012) that attributes every call to its "
+        "overstated three claims outright — UNSUPPORTED, including "
+        "“defining the architectural roadmap for platform-wide event "
+        "streaming” — and inflated a fourth to PARTIALLY_SUPPORTED, "
+        "rather than staying within what the evidence documents. The Trust "
+        "Harness caught all four rather than letting any read as fact. "
+        "Because every scenario now runs both of its drafts, cost per run "
+        "was uniform this time (six LLM calls, $0.51-$0.60) rather than the "
+        "four-to-ten-call spread a lucky-or-unlucky first draft produced "
+        "under the old stop-on-first-pass rule — more predictable, though "
+        "not free. The second draft's own effect was consistent and not "
+        "obviously beneficial: in three of the four scenarios (including "
+        "Scenario 1, where both drafts already passed) the rewrite traded "
+        "ATS for Trust rather than improving both — Scenario 1 moved from "
+        "93/95 to 100/90, still passing but with a worse ATS score, so the "
+        "run correctly exported the first draft instead of the second. That "
+        "consistent pattern, on a four-scenario sample, is preliminary "
+        "evidence rather than proof, but it is why the default rewrite "
+        "count was set to one rather than restored to the original three "
+        "(ADR-0016) until a larger real-provider comparison says otherwise. "
+        "Telemetry (ADR-0012) attributes every one of those calls to its "
         "node and reports an honest null rather than a partial total for "
         "any unpriced model.",
     )

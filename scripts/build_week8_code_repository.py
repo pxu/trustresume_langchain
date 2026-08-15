@@ -171,7 +171,7 @@ def build() -> Document:  # type: ignore[no-untyped-def]
             ["src/trustresume/api", "The FastAPI backend and the provider agnostic model factory"],
             ["src/trustresume/ui", "The Streamlit frontend"],
             ["src/trustresume/poc", "A manual, credential requiring smoke test script, not part of the app"],
-            ["tests/", "474 automated unit and integration tests"],
+            ["tests/", "500 automated unit and integration tests"],
             ["evals/", "Labeled datasets and the recorded evaluation baseline"],
             ["docs/architecture", "Design documents and architecture decision records"],
             ["scripts/", "One off tooling, including the scripts that generated this report series"],
@@ -201,10 +201,12 @@ def build() -> Document:  # type: ignore[no-untyped-def]
         "libraries declared in pyproject.toml: LangChain and LangGraph for "
         "agent orchestration, ChromaDB for vector storage, FastAPI and "
         "Streamlit for the backend and frontend, unstructured for document "
-        "parsing, fastembed for embeddings, fpdf2 for PDF export, and "
-        "boto3 plus the LangChain provider packages for AWS Bedrock, "
-        "OpenAI, and Google. These are installed dependencies, not code "
-        "copied into the repository. Agent orchestration in this codebase "
+        "parsing, fastembed for embeddings, fpdf2 for PDF export, boto3 "
+        "plus the LangChain provider packages for AWS Bedrock, OpenAI, and "
+        "Google, and an optional langgraph-checkpoint-sqlite dependency for "
+        "opt-in durable execution checkpointing. These are installed "
+        "dependencies, not code copied into the repository. Agent "
+        "orchestration in this codebase "
         "follows patterns shown in LangChain's and LangGraph's own "
         "documentation, structured output binding and the StateGraph "
         "abstraction in particular, rather than any specific blog post or "
@@ -224,7 +226,7 @@ def build() -> Document:  # type: ignore[no-untyped-def]
     add_body(
         doc,
         "The automated test suite runs with no credentials and no network "
-        "access, and it passes: 474 tests, 99.4% statement and branch "
+        "access, and it passes: 500 tests, 99.2% statement and branch "
         "coverage against a 95% gate, verified with pytest immediately "
         "before this report was written. Everything that needs a real "
         "external service is isolated behind a flag or a separate marker, "
@@ -235,7 +237,7 @@ def build() -> Document:  # type: ignore[no-untyped-def]
         doc,
         ["Component", "Runs without credentials", "Notes"],
         [
-            ["pytest (default)", "Yes", "474 tests, 99.4% coverage, in memory database and vector store"],
+            ["pytest (default)", "Yes", "500 tests, 99.2% coverage, in memory database and vector store"],
             ["pytest -m live", "Partly", "needs network access for an embedding model download and a real local server, but no API key"],
             ["API, test provider", "Yes", "TRUSTRESUME_LLM_PROVIDER=test drives the full pipeline with a synthetic model"],
             ["API, Bedrock, OpenAI, or Google", "No", "needs real provider credentials, not included in this submission"],
