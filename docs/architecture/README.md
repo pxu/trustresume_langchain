@@ -25,6 +25,7 @@ needs to work on this code.
   | 0013 | Pinned sampling temperature; models tiered by agent role |
   | 0014 | Per-request user identity, making ADR-0001 demonstrable |
   | 0015 | Opt-in durable execution (LangGraph checkpointing), demonstrative |
+  | 0016 | Quality loop runs to its full cap and ships the best-scoring draft — deviates from the original's ADR-0005 |
 
 ## Reading order
 
@@ -37,3 +38,5 @@ ADRs 0011–0014 are the "can you tell whether this is working?" layer — read
 them together, and alongside `evals/README.md`, once the pipeline itself makes
 sense. ADR-0015 (durable execution) is optional reading: an opt-in,
 demonstrative feature that doesn't affect the default pipeline at all.
+ADR-0016 (quality-loop redesign) directly changes the default pipeline's
+behavior and cost — read it alongside ADR-0003, not as optional/late reading.

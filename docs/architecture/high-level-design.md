@@ -9,9 +9,11 @@ for the fuller design rationale (requirements, ADRs 0002/0004–0009 all still
 apply here); this doc covers what's the same, what changed, and why —
 including additions made after the initial port that don't exist in the
 original at all (hybrid retrieval, ingestion dedup, persisted jobs, résumé
-export, a Streamlit frontend, CI/Docker, and the measurement layer of
+export, a Streamlit frontend, CI/Docker, the measurement layer of
 ADRs 0011-0014: an offline eval harness, token/cost/latency telemetry,
-role-tiered models, and per-request user identity).
+role-tiered models, and per-request user identity; ADR-0015's opt-in
+durable execution; and ADR-0016's quality-loop redesign — no early exit on
+a pass, shipping the best-scoring draft instead).
 
 ## System overview
 
@@ -58,10 +60,10 @@ queries a `HybridRetriever` (vector + keyword, ADR-0010), not Chroma directly.
 | Layer | Package | What changed from the original |
 |---|---|---|
 | **Frontend** | `ui/` | New — not in the original at all. Streamlit app (`streamlit_app.py`) + a thin REST client (`api_client.py`'s `TrustResumeClient`); imports nothing from `trustresume.api`/`orchestration`, so the dependency points one way (UI → HTTP → backend) and `streamlit` stays an optional (`ui`) extra. |
-| **HTTP** | `api/server.py` | Routes unchanged in spirit, extended into four resource groups: documents (JSON + multipart upload + delete), jobs (CRUD, job-scoped upload/generate/list), generation and résumés (including PDF/Markdown export, and an opt-in `POST /api/runs/{run_id}/resume` for durable execution — ADR-0015), and retrieval/ops (`/api/search`, `/api/ping`, `/api/health`). Every user-scoped route resolves its caller from `X-User-Id` via one dependency (ADR-0014) instead of a hardcoded demo id. Still operates on `WorkflowState`/the facade, not agent internals. |
-| **Facade** | `api/app_service.py` | Collaborator types: `HybridRetriever` (not `ChromaVectorStore` directly) feeds `EvidenceRetrievalAgent`; a LangChain `BaseChatModel` instead of a pydantic-ai `Model`. Also exposes `add_document_bytes`/`search_evidence` for the API layer. |
-| **LLM provider factory** | `api/model_factory.py` | Same `LLMConfig` + precedence logic (env > llm.local.json > llm.json > default), extended with a pinned `temperature` (default 0) and per-role model tiering — `extraction`/`writer`/`verifier` (ADR-0013); provider dispatch retargeted to `langchain_aws`/`langchain_openai`/`langchain_google_genai`. The offline `"test"` provider is a new, more capable `AutoStructuredFakeChatModel` (`api/test_provider.py`) that synthesizes valid structured output for *any* bound schema, so `TRUSTRESUME_LLM_PROVIDER=test` can drive the full pipeline with no credentials (the original's pydantic-ai `TestModel` had this "synthesize anything" ability natively; LangChain's fakes don't, so it's rebuilt here). |
-| **Control** | `orchestration/orchestrator.py` | Rebuilt as a LangGraph `StateGraph` (ADR-0003, superseding the original's ADR-0003). The port itself changed no public contract; `run()` has since grown `job`/`job_id`/`document_ids` for the persisted-job path (exactly one of `job_posting` or `job` must be passed) and now returns `WorkflowState.usage` — per-node timings plus tokens/cost (ADR-0012). An opt-in `checkpoint_path` (ADR-0015, off by default) enables LangGraph checkpointing so a crashed run can `resume(run_id=...)` from its last completed node; disabled, the module behaves exactly as before. `feedback.py`, `candidate_profile_service.py` unchanged. Logs each node transition and the quality-gate routing decision (`logging_config.py`, new). |
+| **HTTP** | `api/server.py` | Routes unchanged in spirit, extended into four resource groups: documents (JSON + multipart upload + delete), jobs (CRUD, job-scoped upload/generate/list), generation and résumés (including PDF/Markdown export, and an opt-in `POST /api/runs/{run_id}/resume` for durable execution — ADR-0015), and retrieval/ops (`/api/search`, `/api/ping`, `/api/health`). Every user-scoped route resolves its caller from `X-User-Id` via one dependency (ADR-0014) instead of a hardcoded demo id. Still operates on `WorkflowState`/the facade, not agent internals. `POST /api/generate`'s `GenerateRequest` and the new `GenerateForJobRequest` body for `POST /api/jobs/{id}/generate` both take an optional `max_iterations`, overriding the app's config-resolved default for that call only (ADR-0016); `GenerateForJobRequest`'s body is itself optional, so pre-existing no-body callers are unaffected. |
+| **Facade** | `api/app_service.py` | Collaborator types: `HybridRetriever` (not `ChromaVectorStore` directly) feeds `EvidenceRetrievalAgent`; a LangChain `BaseChatModel` instead of a pydantic-ai `Model`. Also exposes `add_document_bytes`/`search_evidence` for the API layer. `TrustResumeApp` takes an optional `default_gate` (resolved from config by `build_default_app` — ADR-0016); `generate()`/`generate_for_job()` fall back to it when a caller passes no `gate=` of their own. |
+| **LLM provider factory** | `api/model_factory.py` | Same `LLMConfig` + precedence logic (env > llm.local.json > llm.json > default), extended with a pinned `temperature` (default 0) and per-role model tiering — `extraction`/`writer`/`verifier` (ADR-0013); provider dispatch retargeted to `langchain_aws`/`langchain_openai`/`langchain_google_genai`. The offline `"test"` provider is a new, more capable `AutoStructuredFakeChatModel` (`api/test_provider.py`) that synthesizes valid structured output for *any* bound schema, so `TRUSTRESUME_LLM_PROVIDER=test` can drive the full pipeline with no credentials (the original's pydantic-ai `TestModel` had this "synthesize anything" ability natively; LangChain's fakes don't, so it's rebuilt here). This module also holds `load_quality_gate` (ADR-0016) — the same file/env precedence, reused for `QualityGate.max_iterations` rather than an LLM setting; small enough to not warrant its own module. |
+| **Control** | `orchestration/orchestrator.py` | Rebuilt as a LangGraph `StateGraph` (ADR-0003, superseding the original's ADR-0003). The port itself changed no public contract; `run()` has since grown `job`/`job_id`/`document_ids` for the persisted-job path (exactly one of `job_posting` or `job` must be passed) and now returns `WorkflowState.usage` — per-node timings plus tokens/cost (ADR-0012). An opt-in `checkpoint_path` (ADR-0015, off by default) enables LangGraph checkpointing so a crashed run can `resume(run_id=...)` from its last completed node; disabled, the module behaves exactly as before. The quality loop's stopping condition changed (ADR-0016): `_route` no longer checks `gate.passes(...)`, only `iteration >= max_iterations`, so it never exits early on a pass — every run generates `max_iterations+1` drafts and `WorkflowState.final_index` picks the best of them by (passed the gate, ATS score). `feedback.py`, `candidate_profile_service.py` unchanged. Logs each node transition and the quality-gate routing decision (`logging_config.py`, new). |
 | **Workers** | `agents/` | Each LLM-backed agent swaps a pydantic-ai `Agent` for `chat_model.with_structured_output(Schema)`. `ResumeWriterAgent` binds a lenient private `_DraftExtraction` schema rather than `ResumeDraft` directly — real models emit structural noise (empty section headings, the summary emitted as its own section, bare group-label sections) that would otherwise crash structured-output parsing; `_to_resume_draft` cleans it up in code. `TrustHarnessAgent`'s private `_ClaimExtraction` schema is unchanged from the original port. `EvidenceRetrievalAgent` now takes any retriever satisfying a `search(user_id, query, limit) -> EvidenceSet` protocol (`ChromaVectorStore` or `HybridRetriever`), not `ChromaVectorStore` specifically. `ATSEvaluationAgent` unchanged. |
 | **Domain logic** | `trust_verification/`, `evaluation/` | Unchanged — pure string-building and scoring functions, no framework dependency. |
 | **Write path** | `ingestion/` | Parsing (`.docx`/`.pdf`) now goes through `unstructured.partition.auto.partition` (one shared entry point, replacing separate python-docx/pypdf functions); chunking uses LangChain's `RecursiveCharacterTextSplitter`. New: content-hash dedup — `IngestionService.ingest_text` checks `DocumentRepository.find_by_content_hash` before writing anything, so re-uploading the same document (by cleaned-text hash) is a no-op that returns the existing document id rather than duplicating chunks in both stores. The write-then-upsert, roll-back-on-failure contract for genuinely new documents is unchanged. |
@@ -79,24 +81,32 @@ already ingested):
 1. job_description_agent.run(posting)          → JobDescription  (once)
 2. candidate_profile_service.get_or_refresh(user_id) → CandidateProfile (once; usually a cache hit)
 3. retrieval_agent.run(user_id, job)            → EvidenceSet     (once; hybrid vector+keyword, user-filtered)
-   ┌── quality loop (≤ 4 passes: initial + 3 rewrites) ─────────────────────┐
+   ┌── quality loop (max_iterations+1 passes, ALWAYS — no early exit) ──────┐
 4. resume_agent.run(job, evidence, feedback?)  → ResumeDraft
 5. trust_agent.run(draft, evidence)             → TrustReport  (LLM classifies, code scores)
 6. evaluation_agent.run(draft, job)             → ATSReport    (deterministic coverage)
-   ── if Trust ≥ 90 AND ATS ≥ 85 → PASS, stop
-   ── else if iteration == 3 → CAPPED, stop (export anyway)
-   ── else build_feedback(trust, ats) → rewrite (back to step 4)
+   ── build_feedback(trust, ats) → rewrite (back to step 4), regardless of
+      whether this draft passed — repeats until iteration == max_iterations
    └─────────────────────────────────────────────────────────────────────────┘
-7. persist final draft + evaluation to SQLite
-8. project WorkflowState → GenerateResponse (real scores + flagged claims)
+7. pick the draft to ship (WorkflowState.final_index, ADR-0016): a passing
+   draft always beats a failing one; among drafts on the same side of that
+   line, the higher ATS score wins (Trust is not part of this tiebreak)
+8. persist that draft + its evaluation to SQLite
+9. project WorkflowState → GenerateResponse (real scores + flagged claims)
 ```
 
 Steps 1–6 now execute as LangGraph nodes/edges rather than a hand-rolled
-`while` loop (ADR-0003), but the sequencing, the one-time-vs-per-rewrite
-split, and the exact iteration-counting semantics are unchanged. Step 3's
-retrieval is now hybrid (ADR-0010) rather than vector-only, but the shape
-(`EvidenceRetrievalAgent.run(user_id, job) -> EvidenceSet`) the orchestrator
-depends on is identical either way.
+`while` loop (ADR-0003), and the sequencing / one-time-vs-per-rewrite split
+is unchanged, but the *stopping condition* is not (ADR-0016): the original
+loop stopped the instant a draft passed the gate; this one always runs to
+`max_iterations` regardless, so it can — and in a real Bedrock comparison,
+did — generate a worse rewrite after an already-decent draft. Step 7's
+best-of selection is what protects against shipping that regression. Step
+3's retrieval is now hybrid (ADR-0010) rather than vector-only, but the
+shape (`EvidenceRetrievalAgent.run(user_id, job) -> EvidenceSet`) the
+orchestrator depends on is identical either way. `max_iterations` itself is
+config/env-driven (`config/quality_gate.json`, default `1` → 2 total
+drafts — see ADR-0016), not a fixed `3`.
 
 A standalone `POST /api/search` runs the same hybrid retrieval outside a full
 generation, for inspecting retrieval quality directly.

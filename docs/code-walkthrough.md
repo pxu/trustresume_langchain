@@ -179,28 +179,60 @@ ats_reports: Annotated[list[ATSReport], operator.add]
 LangGraph 会**把它拼到已有列表后面**而不是覆盖。于是每一轮的草稿和分数都被完整留档
 （供论文/UI 回看）。其它字段是默认的"后写覆盖"。
 
-### ⚠️ 最容易踩坑的地方：`max_iterations=3` 产生的是 **4** 份草稿
+### ⚠️ 最容易踩坑的地方：循环**从不提前退出**，`max_iterations=N` 产生的是 **N+1** 份草稿
 
-这是全代码里最反直觉、也最"承重"的细节，一定要记住：
+这是全代码里最反直觉、也最"承重"的细节，一定要记住——而且它最近被**故意改过**
+（ADR-0016，偏离了原项目的 ADR-0005"第一稿达标就停"）：
 
 ```python
 def _route(self, state):
-    passed = gate.passes(...)
-    is_exhausted = state["iteration"] >= gate.max_iterations   # 用的是"增量前"的值
-    return "end" if (passed or is_exhausted) else "rewrite"
+    passed = gate.passes(...)                                   # 仅用于日志，不影响决策
+    is_exhausted = state["iteration"] >= gate.max_iterations     # 用的是"增量前"的值
+    return "end" if is_exhausted else "rewrite"                  # 注意：不看 passed
 ```
 
 `_route` 在 `score_ats` 之后、`prepare_rewrite`（负责 `iteration += 1`）**之前**被调用。
-所以判断用的 `iteration` 还是刚打完分那份草稿的编号。默认 `max_iterations=3` 时：
+所以判断用的 `iteration` 还是刚打完分那份草稿的编号。假设 `max_iterations=3` 时：
 
-- iteration 0（初稿）→ 不达标 → rewrite（iteration 变 1）
-- iteration 1 → 不达标 → rewrite（变 2）
-- iteration 2 → 不达标 → rewrite（变 3）
+- iteration 0（初稿）→ 不管达标不达标 → rewrite（iteration 变 1）
+- iteration 1 → 同样不管 → rewrite（变 2）
+- iteration 2 → 同样不管 → rewrite（变 3）
 - iteration 3 → 判断 `3 >= 3` 为真 → end
 
-一共 **4 份草稿（0、1、2、3）**，不是 3 份。这个语义有专门的测试守着：
+一共 **4 份草稿（0、1、2、3）**，不是 3 份，**哪怕第 0 稿就已经达标了也照样跑完**。这个
+计数语义有专门的测试守着：
 `tests/unit/test_orchestrator.py::test_orchestrator_failsToCap_stopsAndExportsRealScores`。
 改任何跟循环有关的东西前，先跑这个测试。
+
+`config/quality_gate.json` 把默认值定成了 `1`（也就是 2 份草稿），不是 3——因为一旦不再
+"达标就停"，默认值越大，每次生成白白多付的 LLM 调用就越多，而这笔钱是否真的换来更好的
+草稿还没有被验证过（见 ADR-0016 里的真实 Bedrock 对照实验：一次重写反而让 ATS 分从
+43.75 掉到了 40.62）。这个值现在是配置/环境变量驱动的（`model_factory.load_quality_gate`，
+优先级和 `LLMConfig.load` 一模一样：`TRUSTRESUME_QUALITY_MAX_ITERATIONS` >
+`quality_gate.local.json` > `quality_gate.json` > Pydantic 默认值 3），不再是硬编码。
+
+**既然不提前停了，"最后一份草稿"就不一定是"该交付的那份草稿"**——`WorkflowState` 因此
+多了一套 `final_*` 属性（`final_index`/`final_draft`/`final_trust`/`final_ats`/
+`final_passed`，`models/workflow.py`），和已有的 `current_*`（永远指向*最新*一份，循环
+自己的路由逻辑在用）并存：
+
+```python
+key=lambda i: (
+    gate.passes(trust_reports[i], ats_reports[i]),  # 先比是否达标——达标的永远赢
+    ats_reports[i].score,                            # 同侧再比 ATS——注意不是 Trust
+    i,                                                 # 再打平手就选更晚的迭代
+)
+```
+
+达标的稿子永远赢不达标的，不管分数高低；同样都达标或同样都不达标时，比 ATS 而不是
+Trust——因为达标的稿子本来就已经过了 Trust 门槛，Trust 分再高也不能提供额外信息；而全部
+不达标时按 ATS 排序是**刻意的产品选择**，没有 Trust 兜底，意味着一份幻觉严重但关键词覆盖
+好的稿子理论上能赢过幻觉少但关键词覆盖差的稿子。持久化 (`_persist`)、`GenerateResponse`、
+导出的 `evaluation.json`、Streamlit 界面现在读的都是 `final_*`，不是 `current_*`。
+
+`GenerateResponse.exhausted` 和 `evaluation.json` 里的 `"exhausted"` 字段被删掉了——
+在新设计下，任何一次跑完的生成 `is_exhausted` 恒为 `True`（反正都会跑到上限），一个恒定
+不变的字段不携带任何信息。
 
 > 顺带一提：`run()` 里把 LangGraph 的递归上限从默认 25 提到了
 > `6 + 4 * max_iterations + 10`——否则调用方传一个更大的 `max_iterations` 时会先撞上
@@ -504,9 +536,13 @@ LLM 推理完全发生在它包着的那个 agent 里面。同理 `IngestionServ
 
 - **`TrustResumeApp`（`api/app_service.py`）** 是应用门面——所有真实逻辑都在这里被
   接成一个对象（两个库、ingestion、六个 agent、编排器）。FastAPI 只是它上面很薄的一层，
-  这样不用起 HTTP 就能测全链路。注意两条 `generate*` 路径跑完都会把最终草稿+分数+导出
-  **持久化**到 SQLite（`_persist`，见 §9.2），哪怕是"撑到上限"的草稿也照存（导出真实分数，
-  ADR-0005）。**凡是带 `job_id`/`resume_id`/`document_id` 的方法，都先校验它属于这个
+  这样不用起 HTTP 就能测全链路。注意两条 `generate*` 路径跑完都会把**最佳草稿**
+  （`state.final_*`，不是最后一份——见 §4，ADR-0016）+分数+导出
+  **持久化**到 SQLite（`_persist`，见 §9.2），哪怕最终没能达标也照存（导出真实分数，
+  这一点继承自原项目的 ADR-0005，只是"最终"现在指最佳而不是最后）。`generate()`/
+  `generate_for_job()` 都接受一个可选的 `gate=` 覆盖参数，缺省时落到 `TrustResumeApp`
+  构造时定下的 `default_gate`（`build_default_app` 从 `config/quality_gate.json` 读出来的，
+  ADR-0016）。**凡是带 `job_id`/`resume_id`/`document_id` 的方法，都先校验它属于这个
   user**，不属于就返回 `None`（路由层再翻译成 404）——越权访问在门面这一层就被挡住，
   不依赖路由记得写检查。
 - **`model_factory.py`** 决定用哪个 LLM。配置优先级：
@@ -526,13 +562,14 @@ LLM 推理完全发生在它包着的那个 agent 里面。同理 `IngestionServ
   |---|---|
   | 文档 | `GET/POST /api/documents`（JSON 增/查）、`POST /api/documents/upload`（multipart 上传，服务端解析）、`DELETE /api/documents/{id}` |
   | Job（§8.5）| `POST/GET /api/jobs`、`GET/PUT/DELETE /api/jobs/{id}`、`POST /api/jobs/{id}/documents`（上传并关联到该 job）、`GET /api/jobs/{id}/documents`（该 job 可见的文档 = 通用池 ∪ 本 job） |
-  | 生成与简历 | `POST /api/generate`（老路径：贴原文）、`POST /api/jobs/{id}/generate`（针对已存 job，跳过抽取 + job 级检索范围）、`GET /api/jobs/{id}/resumes`、`GET /api/resumes/{id}`、`GET /api/resumes/{id}/pdf`、`GET /api/resumes/{id}/markdown` |
+  | 生成与简历 | `POST /api/generate`（老路径：贴原文，body 可带可选的 `max_iterations` 覆盖默认重写次数——ADR-0016）、`POST /api/jobs/{id}/generate`（针对已存 job，跳过抽取 + job 级检索范围；body 同样可选带 `max_iterations`，整个 body 也是可选的，不破坏老的"不带 body"调用方）、`GET /api/jobs/{id}/resumes`、`GET /api/resumes/{id}`、`GET /api/resumes/{id}/pdf`、`GET /api/resumes/{id}/markdown` |
   | 检索与运维 | `POST /api/search`（见 §9.1）、`GET /api/ping`（真连一次 LLM 探活）、`GET /api/health`、`GET /`（服务说明） |
 
   线上 DTO 都在 `schemas.py`：注意 `JobDetail` 继承 `JobSummary`、`ResumeDetail` 继承
   `ResumeSummary`——"列表用精简版、详情用完整版"这个模式在两组资源上是一致的。
-  `GenerateResponse` 里除了分数还带 `passed`/`exhausted`/`iterations` 和 `resume_id`
-  （前端拿它直接拼导出链接，不用再查一次）。
+  `GenerateResponse` 里除了分数还带 `passed`/`iterations` 和 `resume_id`
+  （前端拿它直接拼导出链接，不用再查一次）——**没有** `exhausted` 字段：在"循环从不提前
+  退出"的新设计下这个值恒为 `True`，已经删掉了（ADR-0016）。
 
 ### 9.1 `/api/search`：把检索单独拎出来
 
@@ -595,21 +632,29 @@ Python `logging` 内部保留的 `LogRecord` 属性（`filename`/`module`/`name`
 1. JobDescriptionAgent.run(posting)          → JobDescription   （一次）
 2. CandidateProfileService.get_or_refresh()   → CandidateProfile （一次，通常命中缓存）
 3. EvidenceRetrievalAgent.run(user_id, job)   → EvidenceSet      （一次，混合检索+按用户过滤，见§6.1）
-   ┌── 质量闭环（≤ 4 轮：初稿 + 最多 3 次重写）───────────────────────┐
+   ┌── 质量闭环（max_iterations+1 轮，永远跑完，不提前停——ADR-0016）─┐
 4. ResumeWriterAgent.run(job, evidence, feedback?) → ResumeDraft
 5. TrustHarnessAgent.run(draft, evidence)     → TrustReport  （LLM 分类，代码打分）
 6. ATSEvaluationAgent.run(draft, job)         → ATSReport    （确定性覆盖率）
-   ── 若 Trust ≥ 90 且 ATS ≥ 85 → 通过，停
-   ── 否则若 iteration == 3 → 到顶，停（照样导出）
-   ── 否则 build_feedback(trust, ats) → 重写（回到第 4 步）
+   ── build_feedback(trust, ats) → 重写（回到第 4 步）——不管这一稿是否
+      已经达标，一直重复到 iteration == max_iterations 为止
    └────────────────────────────────────────────────────────────────┘
-7. _persist：草稿 + 分数 + PDF/Markdown 导出 + （失败时）拒绝理由/改进建议 落库（§9.2）
-8. WorkflowState → GenerateResponse（真实分数 + 被标记的声明 + resume_id）
+7. 从跑完的所有稿子里选一份交付（WorkflowState.final_index，ADR-0016）：
+   达标的稿子永远赢不达标的；同侧再比 ATS 分（不是 Trust）
+8. _persist：第 7 步选出的草稿 + 分数 + PDF/Markdown 导出 +
+   （没达标时）拒绝理由/改进建议 落库（§9.2）
+9. WorkflowState → GenerateResponse（真实分数 + 被标记的声明 + resume_id）
 ```
 
 第 6 步的反馈（`orchestration/feedback.py`）是**确定性生成**的，不是又一次 LLM 调用：
 它从 Trust/ATS 报告里拼出具体指令——"删掉这条没依据的 Kubernetes 声明"、"补上 AWS 这个
-关键词"。而且**幻觉问题排在关键词缺失前面**，因为准确性优先于关键词覆盖。
+关键词"。而且**幻觉问题排在关键词缺失前面**，因为准确性优先于关键词覆盖。哪怕这一稿已经
+达标，只要还没到 `max_iterations`，一样会拿到反馈去重写——这时 `build_feedback` 大概率
+落进"没有具体问题可指"的兜底分支，只给一句笼统的"整体上再改善证据支撑和相关性"，重写
+效果因此没有保证：真实跑一次 Bedrock 对照实验时，这一步反而把 ATS 从 43.75 拖到了 40.62
+（Trust 倒是从 90.0 涨到了 94.44）——第 7 步的最佳草稿选择就是防止这种退化被交付出去的
+那道保险。`max_iterations` 默认是 `1`（配置文件 `config/quality_gate.json`），也就是默认
+只有 2 轮，不是历史上的 4 轮——见 §4 和 ADR-0016。
 
 ### 另一条路径：`POST /api/jobs/{id}/generate`
 
@@ -984,8 +1029,9 @@ builder，编译这一步挪到 `_compiled` 里按需做）没有变，图的节
    `resume_agent.py`（注意 `_DraftExtraction` 那层清洗逻辑），最后 `trust_agent.py`
    （研究核心）。看 `trust_agent.py` 时对照着读 `trust_verification/verifier.py`
    （prompt 和格式化）+ `models/trust.py`（打分规则）——§5 说的"三层各管一段"。
-6. `orchestration/`——`orchestrator.py` 重点理解那个"4 份草稿"的计数（§4）和 `run` 的
-   `job_posting` / `job` 二选一；再看 `feedback.py` 与 `rejection.py` 的分工（§9.2）。
+6. `orchestration/`——`orchestrator.py` 重点理解"循环从不提前退出"+ `final_index`
+   最佳草稿选择（§4，ADR-0016）和 `run` 的 `job_posting` / `job` 二选一；再看
+   `feedback.py` 与 `rejection.py` 的分工（§9.2）。
 7. `api/app_service.py`——看所有东西怎么被接成一个应用，尤其 `generate_for_job` 和
    `_persist`（§8.5、§9.2）；再看 `server.py` 的路由和 `schemas.py` 的 DTO。
 8. `ui/streamlit_app.py` + `api_client.py`——前端怎么薄薄地包在后端 HTTP 接口上面。

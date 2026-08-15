@@ -8,6 +8,14 @@ hand-rolled loop … migrating to LangGraph or similar becomes a deliberate,
 isolated change — the orchestrator already lives in one module." This repo
 is that migration.
 
+**Update:** the "Decision" section below describes the conditional edge as
+originally built — `passed or is_exhausted → end`, mirroring the original's
+ADR-0005 ("stop the instant the gate passes"). ADR-0016 later changed that
+routing rule (`is_exhausted` alone, ignoring `passed`) without touching
+anything else this ADR decided — the graph shape, the LangGraph migration
+itself, and the recursion-limit sizing below are all still exactly as
+described. See ADR-0016 for the current routing rule and why it changed.
+
 ## Context
 The original MVP deliberately avoided a framework so control flow (agent
 sequencing, the quality-loop condition, feedback threading between rewrites)
