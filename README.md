@@ -21,7 +21,11 @@ persisted jobs with job-scoped retrieval, and résumé export added on top of
 the original port — and, on top of that, a measurement layer: an offline
 evaluation harness with labeled ground truth, per-run token/cost/latency
 accounting, role-tiered models, and per-request user identity
-(ADRs 0011–0014). See `docs/architecture/high-level-design.md`
+(ADRs 0011–0014); opt-in durable execution via LangGraph checkpointing
+(ADR-0015); and a redesigned quality loop that no longer stops the instant a
+draft passes — it always runs a config/env-driven number of rewrites
+(`config/quality_gate.json`, default 1) and ships whichever draft actually
+scored best (ADR-0016). See `docs/architecture/high-level-design.md`
 for the current module map and `docs/code-walkthrough.md` for how it all fits
 together.
 
