@@ -37,6 +37,7 @@ stable about, not the scores.
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -48,6 +49,9 @@ from trustresume.models import DocumentType, WorkflowState
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = REPO_ROOT / "output" / "samples"
+
+INDEX_START = "<!-- INDEX:START -->"
+INDEX_END = "<!-- INDEX:END -->"
 
 # One candidate's real-looking career evidence. Deliberately concrete —
 # numbers, product names, team sizes — because the Trust Harness can only
@@ -194,7 +198,57 @@ def _summarize(name: str, expectation: str, state: WorkflowState) -> None:
         )
 
 
+def write_index() -> int:
+    """Regenerate the Results table in ``output/samples/README.md`` from disk.
+
+    Derived from the committed ``evaluation.json`` files rather than
+    hand-written, so the table cannot drift from the runs it describes — a
+    stale index in a directory whose whole purpose is honest example output
+    would be a small lie in the most inconvenient place. Each scenario
+    directory may hold more than one timestamped run (re-running this script
+    adds another); the table shows the most recent one per scenario.
+    """
+    readme = OUTPUT_DIR / "README.md"
+    if not readme.is_file():
+        print(f"{readme} not found", file=sys.stderr)
+        return 1
+
+    rows = [
+        "| Scenario | Result | Trust /90 | ATS /85 | Drafts | Claims flagged |",
+        "|---|---|---|---|---|---|",
+    ]
+    for scenario_dir in sorted(d for d in OUTPUT_DIR.iterdir() if d.is_dir()):
+        runs = sorted(scenario_dir.glob("*/evaluation.json"))
+        if not runs:
+            continue
+        latest = runs[-1]
+        payload = json.loads(latest.read_text(encoding="utf-8"))
+        scenario_name = scenario_dir.name.rsplit("-", 1)[0].removeprefix("sample-")
+        flagged = sum(1 for c in payload["trust"]["claims"] if c["status"] != "SUPPORTED")
+        rows.append(
+            f"| [{scenario_name}]({scenario_dir.name}/{latest.parent.name}/evaluation.md) "
+            f"| **{'PASS' if payload['passed'] else 'FAIL'}** "
+            f"| {payload['trust']['score']:.0f} | {payload['ats']['score']:.0f} "
+            f"| {payload['iteration'] + 1} | {flagged} |"
+        )
+
+    table = "\n".join(rows)
+    content = readme.read_text(encoding="utf-8")
+    if INDEX_START in content and INDEX_END in content:
+        head, rest = content.split(INDEX_START, 1)
+        _, tail = rest.split(INDEX_END, 1)
+        content = f"{head}{INDEX_START}\n{table}\n{INDEX_END}{tail}"
+    else:
+        content = content.rstrip() + f"\n\n## Results\n\n{INDEX_START}\n{table}\n{INDEX_END}\n"
+    readme.write_text(content, encoding="utf-8")
+    print(f"indexed {len(rows) - 2} scenarios into {readme.relative_to(REPO_ROOT)}")
+    return 0
+
+
 def main() -> None:
+    if "--reindex" in sys.argv:
+        raise SystemExit(write_index())
+
     config = LLMConfig.from_env()
     if config.provider == "test":
         print(
@@ -237,6 +291,8 @@ def main() -> None:
             print(f"  {path.relative_to(REPO_ROOT)}")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    write_index()
 
 
 if __name__ == "__main__":

@@ -38,13 +38,18 @@
 - Go
 - Datadog
 - on-call leadership
-- backend engineer
-- platform
-- logistics
+- logistics platform
 - high-volume
+<<<<<<<< HEAD:output/samples/sample-1-strong-match-cc2ac524/20260807-225248-senior-backend-engineer-platform-434bf056/job.md
+- backend engineer
+- platform engineering
+- order pipeline
+- deploy tooling
+========
 - event-driven systems at scale
 - order pipeline
 - build and deploy tooling
+>>>>>>>> origin/main:output/samples/sample-1-strong-match-cc2ac524/20260807-195015-senior-backend-engineer-platform-7d5246e6/job.md
 - mentoring
 
 ## Original posting

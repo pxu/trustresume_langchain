@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import logging
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,7 @@ class TrustResumeApp:
         verifier_model: BaseChatModel | None = None,
         chroma_collection_name: str = COLLECTION_NAME,
         output_dir: Path | None = None,
+        checkpoint_path: str | None = None,
     ) -> None:
         init_db(connection)
         self._connection = connection
@@ -170,6 +172,10 @@ class TrustResumeApp:
             chunks=self._chunks,
             profiles=self._candidate_profiles,
         )
+        # Durable execution (ADR-0015), opt-in. ``None`` disables checkpointing
+        # entirely — the default for tests and the standard install. When set,
+        # a crashed generation can be resumed via :meth:`resume_run`.
+        self._durable = checkpoint_path is not None
         self._orchestrator = Orchestrator(
             job_description_agent=self._job_agent,
             candidate_profile_service=candidate_profile_service,
@@ -177,6 +183,7 @@ class TrustResumeApp:
             resume_agent=ResumeWriterAgent(writer),
             trust_agent=TrustHarnessAgent(verifier),
             evaluation_agent=ATSEvaluationAgent(),
+            checkpoint_path=checkpoint_path,
         )
 
     # --- user + document management ---------------------------------------
@@ -381,7 +388,10 @@ class TrustResumeApp:
         real Trust/ATS scores and the pass/fail — including for a capped-out
         draft (ADR-0005).
         """
-        state = asyncio.run(self._orchestrator.run(user_id=user_id, job_posting=job_posting))
+        run_id = self._new_run_id()
+        state = asyncio.run(
+            self._orchestrator.run(user_id=user_id, job_posting=job_posting, run_id=run_id)
+        )
         self._persist(state)
         return state
 
@@ -401,13 +411,47 @@ class TrustResumeApp:
             return None
         job = JobDescription.model_validate_json(row["job_description_json"])
         document_ids = self._documents.list_eligible_document_ids(user_id=user_id, job_id=job_id)
+        run_id = self._new_run_id()
         state = asyncio.run(
             self._orchestrator.run(
-                user_id=user_id, job=job, job_id=job_id, document_ids=document_ids
+                user_id=user_id,
+                job=job,
+                job_id=job_id,
+                document_ids=document_ids,
+                run_id=run_id,
             )
         )
         self._persist(state)
         return state
+
+    def resume_run(self, *, user_id: str, run_id: str) -> WorkflowState | None:
+        """Resume a checkpointed generation from its last completed node (ADR-0015).
+
+        Returns ``None`` when durable execution is disabled, when no checkpoint
+        exists for ``run_id``, or when the checkpointed run belongs to a
+        different user — all three collapse to "not found" so a caller can't
+        probe another user's run ids (ADR-0001's isolation still holds). On
+        success the resumed draft is persisted exactly as a fresh generation
+        would be.
+        """
+        if not self._durable:
+            return None
+        state = asyncio.run(self._orchestrator.resume(run_id=run_id))
+        if state is None or state.user_id != user_id:
+            return None
+        self._persist(state)
+        return state
+
+    @staticmethod
+    def _new_run_id() -> str:
+        """A fresh LangGraph ``thread_id`` for one generation.
+
+        Minted before the run (not derived from ``resume_id``, which only
+        exists post-run in ``_persist``) so a crash-resume has a stable key to
+        address the run by. Harmless when durable execution is off — the
+        orchestrator ignores ``run_id`` with no checkpointer to write to.
+        """
+        return uuid.uuid4().hex
 
     def get_resume(self, *, user_id: str, resume_id: str) -> sqlite3.Row | None:
         """The stored resume row for this user + id, or ``None`` if not found/owned."""
@@ -547,6 +591,7 @@ def build_default_app(
     chroma_path: str = "chroma_data",
     llm_config: LLMConfig | None = None,
     output_dir: str | None = "output",
+    checkpoint_path: str | None = None,
 ) -> TrustResumeApp:
     """Assemble a production app: file-backed stores + fastembed + an LLM.
 
@@ -562,6 +607,11 @@ def build_default_app(
     ``output_dir`` mirrors every generation to a browsable directory tree
     (``trustresume.export.artifacts``). Pass ``None`` to disable it — the
     database still holds everything either way.
+
+    ``checkpoint_path`` enables durable execution (ADR-0015): a SQLite file
+    LangGraph writes per-node checkpoints to, so a crashed generation can be
+    resumed via ``TrustResumeApp.resume_run``. ``None`` (the default) leaves
+    checkpointing off; the ``durable`` extra is only needed when it is set.
     """
     import chromadb
 
@@ -589,4 +639,5 @@ def build_default_app(
         writer_model=build_model(config, role="writer"),
         verifier_model=build_model(config, role="verifier"),
         output_dir=Path(output_dir) if output_dir else None,
+        checkpoint_path=checkpoint_path,
     )

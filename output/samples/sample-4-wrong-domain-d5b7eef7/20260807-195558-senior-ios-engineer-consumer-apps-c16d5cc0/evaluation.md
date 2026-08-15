@@ -1,10 +1,36 @@
 # Evaluation
 
-**DID NOT PASS** — Trust 100/90 · ATS 0/85 · iteration 3 of 3
+- **Verdict:** DID NOT PASS
+- **Job title:** Senior iOS Engineer - Consumer Apps
+- **Gate:** Trust ≥ 90 and ATS ≥ 85
+- **Iterations run:** 3 (cap 3; 4 draft(s) total)
+- **Model(s):** global.anthropic.claude-opus-4-6-v1
+
+## Scores (iteration 3)
+
+| Metric | Score | Threshold | Met |
+|---|---|---|---|
+| Trust | 100.0 | 90 | yes |
+| ATS | 0.0 | 85 | **no** |
+
 **Why it failed:** ATS score 0 (needs >= 85).
-_Hit the rewrite cap without passing — this is the last draft, exported with its real scores rather than discarded._
+
+_Hit the rewrite cap without passing — this is the last draft, exported with its real scores rather than discarded (the loop keeps the final iteration; it does not search for the best-scoring one, unlike the trustresume original)._
+
+## Iteration history
+
+| Iteration | Trust | ATS | Passed |
+|---|---|---|---|
+| 0 | 100 | 0 | no |
+| 1 | 100 | 0 | no |
+| 2 | 100 | 0 | no |
+| 3 (exported) | 100 | 0 | no |
 
 ## Trust Harness
+
+- Claims extracted: 13
+- Supported fraction: 1.00
+- Flagged as unsupported: 0
 
 - **SUPPORTED** (EXPERIENCE) — Senior Backend Engineer with 5 years of experience
 - **SUPPORTED** (SKILL) — Designing high-throughput, event-driven systems
@@ -22,16 +48,24 @@ _Hit the rewrite cap without passing — this is the last draft, exported with i
 
 ## ATS keyword coverage
 
-- Matched: (none)
-- Missing: Swift, SwiftUI, UIKit, Core Data, AVFoundation, XCTest, Metal, iOS, memory management, battery profiling, video playback, offline download, native iOS apps, App Store, consumer apps, ARKit, Objective-C
+- Matched (0): (none)
+- Missing (17): Swift, SwiftUI, UIKit, Core Data, AVFoundation, XCTest, Metal, iOS, memory management, battery profiling, video playback, offline download, native iOS apps, App Store, consumer apps, ARKit, Objective-C
 
-## Suggested improvements
+## Rewrite feedback
+
+Deterministic, built from the gate's own gap (`orchestration/feedback.py`) — no extra LLM call.
 
 ```
 Where the evidence genuinely supports them, incorporate these target keywords the draft is missing: Swift, SwiftUI, UIKit, Core Data, AVFoundation, XCTest, Metal, iOS, memory management, battery profiling, video playback, offline download, native iOS apps, App Store, consumer apps, ARKit, Objective-C
 ```
 
-## Run cost
+## Cost & latency
 
+<<<<<<<< HEAD:output/samples/sample-4-wrong-domain-d5b7eef7/20260807-225826-senior-ios-engineer-consumer-apps-319b2835/evaluation.md
+- 10 LLM calls · 25,772 tokens (17,702 in / 8,070 out) · $0.8708
+- 96.0s wall clock
+- Slowest step: score_trust (15.8s)
+========
 - 10 LLM calls · 25,898 tokens (17,736 in / 8,162 out)
 - 95.0s wall clock · unknown (no price configured for this model)
+>>>>>>>> origin/main:output/samples/sample-4-wrong-domain-d5b7eef7/20260807-195558-senior-ios-engineer-consumer-apps-c16d5cc0/evaluation.md

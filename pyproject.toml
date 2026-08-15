@@ -44,6 +44,13 @@ ui = [
     "streamlit",
     "requests",
 ]
+# Durable execution: LangGraph checkpointing to a SQLite file so a crashed
+# generation can resume from its last completed node instead of re-paying for
+# every LLM call (ADR-0015). Demonstrative, opt-in — the default install and
+# every existing test path run with no checkpointer at all.
+durable = [
+    "langgraph-checkpoint-sqlite",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

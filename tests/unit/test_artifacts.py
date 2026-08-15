@@ -14,6 +14,8 @@ from trustresume.models import (
     ClaimStatus,
     JobDescription,
     ModelUsage,
+    NodeTiming,
+    NodeUsage,
     ResumeDraft,
     ResumeSection,
     RunUsage,
@@ -107,6 +109,7 @@ def test_writeRunArtifacts_createsAllFilesUnderUserScopedDirectory(tmp_path: Pat
         "evaluation.json",
         "evaluation.md",
         "job.md",
+        "metrics.json",
         "resume.md",
         "resume.pdf",
     ]
@@ -118,8 +121,8 @@ def test_writeRunArtifacts_evaluationMarkdown_leadsWithTheVerdict(tmp_path: Path
     run_dir = _write(tmp_path, _state(passed=True))
 
     text = (run_dir / "evaluation.md").read_text(encoding="utf-8")
-    assert "**PASSED**" in text
-    assert "Trust 100/90" in text
+    assert "**Verdict:** PASSED" in text
+    assert "| Trust | 100.0 | 90 | yes |" in text
     assert "SUPPORTED" in text
     assert "4 LLM calls" in text
     assert "$0.0123" in text
@@ -134,10 +137,10 @@ def test_writeRunArtifacts_failedRun_recordsWhyAndWhatToFix(tmp_path: Path) -> N
     )
 
     text = (run_dir / "evaluation.md").read_text(encoding="utf-8")
-    assert "**DID NOT PASS**" in text
+    assert "**Verdict:** DID NOT PASS" in text
     assert "Trust score 0 (needs >= 90)." in text
     assert "Remove the unsupported claim." in text
-    assert "flagged as unsupported factual assertions" in text
+    assert "Flagged as unsupported: 1" in text
     assert "kubernetes" in text  # missing ATS keyword
 
 
@@ -252,6 +255,135 @@ def test_writeRunArtifacts_subSecondRun_reportsMillisecondsNotZeroSeconds(
     run_dir = _write(tmp_path, state)
 
     assert "44ms wall clock" in (run_dir / "evaluation.md").read_text(encoding="utf-8")
+
+
+# --- iteration history ------------------------------------------------
+
+
+def test_writeRunArtifacts_singleDraft_omitsIterationHistory(tmp_path: Path) -> None:
+    """Nothing to trend with one draft — the table would be noise."""
+    run_dir = _write(tmp_path, _state())
+    assert "## Iteration history" not in (run_dir / "evaluation.md").read_text(encoding="utf-8")
+
+
+def test_writeRunArtifacts_multipleDrafts_markdownShowsScoreTrajectory(tmp_path: Path) -> None:
+    state = _state(passed=False)
+    early_trust = TrustReport(claims=[], score=40.0)
+    early_ats = ATSReport(score=20.0, matched_keywords=[], missing_keywords=["kubernetes"])
+    state.drafts = [state.drafts[0], state.drafts[0]]
+    state.trust_reports = [early_trust, state.trust_reports[0]]
+    state.ats_reports = [early_ats, state.ats_reports[0]]
+
+    run_dir = _write(tmp_path, state)
+
+    text = (run_dir / "evaluation.md").read_text(encoding="utf-8")
+    assert "## Iteration history" in text
+    assert "| 0 | 40 | 20 | no |" in text
+    assert "| 1 (exported) | 0 | 50 | no |" in text
+
+
+def test_writeRunArtifacts_json_carriesEveryIterationsDraftAndReports(tmp_path: Path) -> None:
+    """Without this, whether the exported draft beat earlier ones is unrecoverable."""
+    state = _state(passed=False)
+    early_trust = TrustReport(claims=[], score=40.0)
+    early_ats = ATSReport(score=20.0, matched_keywords=[], missing_keywords=["kubernetes"])
+    state.drafts = [state.drafts[0], state.drafts[0]]
+    state.trust_reports = [early_trust, state.trust_reports[0]]
+    state.ats_reports = [early_ats, state.ats_reports[0]]
+
+    run_dir = _write(tmp_path, state)
+
+    payload = json.loads((run_dir / "evaluation.json").read_text(encoding="utf-8"))
+    assert [entry["iteration"] for entry in payload["iterations"]] == [0, 1]
+    assert payload["iterations"][0]["trust"]["score"] == 40.0
+    assert payload["iterations"][1]["trust"]["score"] == 0.0
+    assert payload["iterations"][0]["draft"]["summary"] == "Backend engineer."
+
+
+# --- metrics.json -----------------------------------------------------
+
+
+def test_writeRunArtifacts_noUsage_skipsMetricsFileEntirely(tmp_path: Path) -> None:
+    """An all-zero metrics.json would look like a real (if cheap) measurement."""
+    state = _state()
+    state.usage = None
+
+    run_dir = _write(tmp_path, state)
+
+    assert not (run_dir / "metrics.json").exists()
+
+
+def test_writeRunArtifacts_metricsJson_attributesStepsToTheirIteration(tmp_path: Path) -> None:
+    """Two iterations worth of node executions, split back out per step."""
+    state = _state(passed=False)
+    state.usage = RunUsage(
+        models=[ModelUsage(model="m1", input_tokens=300, output_tokens=90, calls=3)],
+        timings=[
+            NodeTiming(node="write_resume", duration_ms=10.0),
+            NodeTiming(node="score_trust", duration_ms=5.0),
+            NodeTiming(node="score_ats", duration_ms=0.1),
+            NodeTiming(node="prepare_rewrite", duration_ms=0.2),
+            NodeTiming(node="write_resume", duration_ms=12.0),
+            NodeTiming(node="score_trust", duration_ms=6.0),
+        ],
+        node_calls=[
+            NodeUsage(node="write_resume", model="m1", input_tokens=100, output_tokens=30),
+            NodeUsage(node="score_trust", model="m1", input_tokens=100, output_tokens=30),
+            NodeUsage(node="write_resume", model="m1", input_tokens=100, output_tokens=30),
+            NodeUsage(node="score_trust", model="m1", input_tokens=100, output_tokens=30),
+        ],
+        total_duration_ms=8200.0,
+        cost_usd=0.0123,
+    )
+
+    run_dir = _write(tmp_path, state)
+
+    payload = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert payload["totals"]["llm_requests"] == 3
+    assert payload["totals"]["estimated_cost_usd"] == 0.0123
+
+    steps = payload["steps"]
+    assert [s["step"] for s in steps] == [
+        "write_resume",
+        "score_trust",
+        "score_ats",
+        "prepare_rewrite",
+        "write_resume",
+        "score_trust",
+    ]
+    # score_ats/prepare_rewrite make no LLM call: zero tokens, not missing.
+    assert steps[2]["input_tokens"] == 0
+    assert steps[2]["requests"] == 0
+    # prepare_rewrite is where the orchestrator increments iteration, so
+    # everything from index 4 on belongs to iteration 1.
+    assert [s["iteration"] for s in steps] == [0, 0, 0, 0, 1, 1]
+    assert steps[0]["input_tokens"] == 100
+    assert steps[4]["input_tokens"] == 100
+
+
+def test_writeRunArtifacts_metricsJson_missingNodeCall_notFalselyZeroed(tmp_path: Path) -> None:
+    """A node with no matching NodeUsage entry still gets a step, just no tokens."""
+    state = _state()
+    state.usage = RunUsage(
+        models=[ModelUsage(model="m1", input_tokens=0, output_tokens=0, calls=0)],
+        timings=[NodeTiming(node="retrieve_evidence", duration_ms=1.0)],
+        total_duration_ms=1.0,
+    )
+
+    run_dir = _write(tmp_path, state)
+
+    payload = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert payload["steps"] == [
+        {
+            "step": "retrieve_evidence",
+            "iteration": 0,
+            "duration_ms": 1.0,
+            "requests": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "estimated_cost_usd": 0.0,
+        }
+    ]
 
 
 def test_userDirName_distinctIdsNeverShareADirectory() -> None:

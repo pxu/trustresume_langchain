@@ -8,6 +8,7 @@ or AWS.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -637,3 +638,43 @@ def test_userIdHeader_malformed_rejectedWith400(client: TestClient) -> None:
 
     assert resp.status_code == 400
     assert "X-User-Id" in resp.json()["detail"]
+
+
+# --- durable execution route (ADR-0015) ------------------------------------
+
+
+def test_resumeRun_durableDisabled_returns404(client: TestClient) -> None:
+    """With no checkpointer configured, every resume is "not found"."""
+    resp = client.post("/api/runs/whatever/resume")
+    assert resp.status_code == 404
+
+
+def test_resumeRun_completedRun_httpRoundTripAndUserScoped(tmp_path: Path) -> None:
+    facade = TrustResumeApp(
+        connection=connect(":memory:"),
+        chroma_client=chromadb.EphemeralClient(),
+        embedder=FakeEmbeddings(),
+        model=FakeToolCallingChatModel(messages=iter(_FULL_GENERATION)),
+        chroma_collection_name=f"test-{uuid.uuid4().hex}",
+        checkpoint_path=str(tmp_path / "ckpt.sqlite"),
+    )
+    client = TestClient(create_app(facade))
+    client.post(
+        "/api/documents",
+        json={"filename": "r.txt", "text": "Built Python services on AWS."},
+        headers={"X-User-Id": "ada"},
+    )
+    # Seed a completed, checkpointed run keyed by a known run id.
+    asyncio.run(
+        facade._orchestrator.run(
+            user_id="ada", job_posting="Senior Python Engineer", run_id="run-1"
+        )
+    )
+
+    # Another user can't resume it — 404, indistinguishable from unknown.
+    assert client.post("/api/runs/run-1/resume", headers={"X-User-Id": "bob"}).status_code == 404
+
+    # The owner resumes it over HTTP and gets the persisted draft back.
+    resp = client.post("/api/runs/run-1/resume", headers={"X-User-Id": "ada"})
+    assert resp.status_code == 200
+    assert resp.json()["resume_id"]

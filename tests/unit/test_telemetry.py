@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from pathlib import Path
+from typing import TypedDict
 
+import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
+from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from trustresume.api.test_provider import FAKE_MODEL_NAME, AutoStructuredFakeChatModel
@@ -19,6 +23,8 @@ from trustresume.telemetry import (
     load_pricing,
     track_usage,
 )
+
+_RUN_ID = uuid.uuid4()
 
 
 class _Schema(BaseModel):
@@ -88,6 +94,79 @@ def test_usageTracker_nonChatGeneration_ignored() -> None:
     assert tracker.usage() == []
 
 
+def test_usageTracker_callWithNoRunId_stillCountsButUnattributed() -> None:
+    """Direct callers (existing tests, ad-hoc scripts) have no run_id at all."""
+    tracker = UsageTracker()
+    tracker.on_llm_end(_llm_result(model="m1"))
+
+    assert tracker.usage()[0].calls == 1
+    assert tracker.node_calls() == []
+
+
+# --- per-node attribution (via a real LangGraph invocation) ----------------
+
+
+class _GraphState(TypedDict):
+    done: int
+
+
+def test_usageTracker_realGraphInvocation_attributesTokensToTheirNode() -> None:
+    """LangGraph tags every LLM call's metadata with the node that made it.
+
+    Runs a tiny two-node graph, each calling the offline fake model once, and
+    checks the tracker split those two calls back out by node — this is the
+    mechanism ``metrics.json``'s per-step breakdown depends on.
+    """
+    model = AutoStructuredFakeChatModel()
+    tracker = UsageTracker()
+
+    async def node_a(state: _GraphState) -> dict[str, int]:
+        await model.with_structured_output(_Schema).ainvoke(
+            "prompt a", config={"callbacks": [tracker]}
+        )
+        return {"done": 1}
+
+    async def node_b(state: _GraphState) -> dict[str, int]:
+        await model.with_structured_output(_Schema).ainvoke(
+            "prompt b", config={"callbacks": [tracker]}
+        )
+        return {"done": 2}
+
+    builder = StateGraph(_GraphState)
+    builder.add_node("node_a", node_a)
+    builder.add_node("node_b", node_b)
+    builder.add_edge(START, "node_a")
+    builder.add_edge("node_a", "node_b")
+    builder.add_edge("node_b", END)
+    graph = builder.compile()
+
+    asyncio.run(graph.ainvoke({"done": 0}, config={"callbacks": [tracker]}))
+
+    calls = tracker.node_calls()
+    assert [c.node for c in calls] == ["node_a", "node_b"]
+    assert all(c.model == FAKE_MODEL_NAME for c in calls)
+    assert all(c.input_tokens > 0 for c in calls)
+
+
+def test_usageTracker_nodeCalls_carryPerCallCostWhenPriced() -> None:
+    tracker = UsageTracker(pricing={"m1": (1.0, 1.0)})
+    tracker.on_chat_model_start({}, [], run_id=_RUN_ID, metadata={"langgraph_node": "write_resume"})
+    tracker.on_llm_end(
+        _llm_result(model="m1", input_tokens=1_000_000, output_tokens=2_000_000), run_id=_RUN_ID
+    )
+
+    calls = tracker.node_calls()
+    assert calls[0].cost_usd == 3.0
+
+
+def test_usageTracker_nodeCalls_unpricedModel_costIsNoneNotZero() -> None:
+    tracker = UsageTracker(pricing={})
+    tracker.on_chat_model_start({}, [], run_id=_RUN_ID, metadata={"langgraph_node": "write_resume"})
+    tracker.on_llm_end(_llm_result(model="mystery"), run_id=_RUN_ID)
+
+    assert tracker.node_calls()[0].cost_usd is None
+
+
 # --- pricing / cost -------------------------------------------------------
 
 
@@ -121,6 +200,49 @@ def test_estimateCost_versionedModelId_matchesByLongestFragment() -> None:
         ModelUsage(model="gpt-4o-mini-2024-07-18", input_tokens=1_000_000, output_tokens=0, calls=1)
     ]
     assert estimate_cost(usage, pricing) == 0.15
+
+
+def test_estimateCost_bedrockInferenceProfilePrefix_stillMatches() -> None:
+    """A region/profile prefix and a -v suffix must both be seen through."""
+    pricing = {"claude-opus-4": (15.0, 75.0)}
+    usage = [
+        ModelUsage(
+            model="global.anthropic.claude-opus-4-v1", input_tokens=1_000_000, output_tokens=0
+        )
+    ]
+    assert estimate_cost(usage, pricing) == 15.0
+
+
+def test_estimateCost_laterModelVersion_isNotPricedAsTheEarlierOne() -> None:
+    """A new release must report unknown, not silently inherit an earlier price.
+
+    Unguarded substring matching would let a 'claude-opus-4' row also price
+    'claude-opus-4-6' — a different model with its own (unconfigured) rate.
+    """
+    pricing = {"claude-opus-4": (15.0, 75.0)}
+    usage = [
+        ModelUsage(
+            model="global.anthropic.claude-opus-4-6-v1", input_tokens=1_000_000, output_tokens=0
+        )
+    ]
+    assert estimate_cost(usage, pricing) is None
+
+
+def test_estimateCost_versionKeyMatchesAtEndOfId_stillPriced() -> None:
+    """A version-ending key with nothing after it in the id is a real match,
+    not a guarded-against extension. Uses a prefixed id so the match goes
+    through substring matching rather than short-circuiting on an exact hit.
+    """
+    pricing = {"claude-opus-4": (15.0, 75.0)}
+    usage = [ModelUsage(model="anthropic.claude-opus-4", input_tokens=1_000_000, output_tokens=0)]
+    assert estimate_cost(usage, pricing) == 15.0
+
+
+def test_estimateCost_versionKeyImmediatelyFollowedByDigit_rejected() -> None:
+    """'claude-opus-4' must not match inside 'claude-opus-42' (no separator, still a digit)."""
+    pricing = {"claude-opus-4": (15.0, 75.0)}
+    usage = [ModelUsage(model="claude-opus-42", input_tokens=1_000_000, output_tokens=0)]
+    assert estimate_cost(usage, pricing) is None
 
 
 def test_loadPricing_readsModelsSection(tmp_path: Path) -> None:
@@ -157,6 +279,18 @@ def test_loadPricing_committedConfig_hasNoPriceForTheOfflineFake() -> None:
         )
         is None
     )
+
+
+def test_loadPricing_committedConfig_pricesTheRealBedrockDefaultModel() -> None:
+    """The default deploy target (config/llm.json's Bedrock model) must be
+    priced explicitly, not "unknown", or every sample/eval run reports null cost.
+    """
+    from trustresume.api.model_factory import BEDROCK_DEFAULT_MODEL
+
+    assert estimate_cost(
+        [ModelUsage(model=BEDROCK_DEFAULT_MODEL, input_tokens=1_000_000, output_tokens=0)],
+        load_pricing(),
+    ) == pytest.approx(15.0)
 
 
 # --- track_usage / finalize ----------------------------------------------

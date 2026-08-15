@@ -132,7 +132,7 @@ def test_documentsTab_deleteButton_removesDocumentAndReruns(mock_session: MagicM
 
     assert not at.exception
     mock_session.delete.assert_called_once_with(
-        "http://localhost:8000/api/documents/d1", timeout=120
+        "http://localhost:8000/api/documents/d1", timeout=300
     )
     assert at.tabs[0].info[0].value == "No documents uploaded yet."
 
