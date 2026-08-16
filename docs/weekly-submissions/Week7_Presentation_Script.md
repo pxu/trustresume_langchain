@@ -1,56 +1,188 @@
-# TrustResume: Final Presentation Speaker Script
+# TrustResume — Final Presentation Script
 
-Full narration, in slide order. Read-through pace (~140 wpm) targets roughly 7-8 minutes, inside the assignment's 5-10 minute window.
-The same text is embedded as speaker notes in Week7_Final_Presentation.pptx. Use whichever is more convenient while recording.
+**Evidence-Based Resume Generation Using RAG, Multi-Agent AI, and Trust Verification**
+Peng Fei Xu · MSAI 699 Capstone · University of the Cumberlands
 
-## Slide 1. Title
+**Target: 8–9 minutes · 10 slides.** Read at a calm pace (~140 words/min).
+Text in *(italics)* is a delivery cue, not something to read aloud.
 
-Good [morning/afternoon] everyone, thank you for the time. I'm Peng Fei Xu, presenting TrustResume, an evidence-based resume generation system built on retrieval-augmented generation, multi-agent AI, and an independent trust-verification layer. This is the final presentation for my MSAI 699 capstone. I'll walk through the problem, how the system works, what the data shows, and where it goes from here.
+---
 
-## Slide The Problem: AI Can Write a Resume. Should You Trust It?
+## Slide 1 — Title & Hook  ·  ~0:30
 
-Let's start with the problem. Generative AI can write a convincing resume in seconds. That part is solved. The problem is nothing stops it from quietly stretching the truth: bumping '2 years' to 'senior', turning a real 64 percent improvement into a rounder 90 percent. That's the easiest way for a model to make a draft look better, so without a check, it happens by default. And the cost isn't abstract: candidates lose credibility, employers make bad hiring decisions, and every legitimate use of AI in hiring gets painted with the same brush. So the question driving this project: can we build a system that generates a strong resume and can prove, claim by claim, that it's true?
+*(Pause. Make eye contact before you speak. Let the question land.)*
 
-## Slide The Solution: Generate, Then Independently Verify
+> Let me start with a question. If an AI tool writes your resume in seconds —
+> **who checks that every claim in it is actually true?**
+>
+> Right now, nobody does. That gap is what my project closes.
+>
+> I'm Peng Fei Xu, and this is **TrustResume**. It generates a resume from real
+> evidence, and then **independently verifies every claim before delivering it**.
+> I'll cover the problem, how it works, the results, and what it means for the
+> people who use it.
 
-The solution is architectural. First, retrieval-augmented generation: instead of inventing a resume, we retrieve the candidate's own documents and ground the draft in that evidence. Second, the key idea: generation and verification are separate agents. The writer never grades its own homework. An independent Trust Harness checks every claim against the evidence, scored against a Trust gate and an ATS gate, and the system always rewrites at least once more, whether or not the draft already cleared both gates, then ships whichever draft actually scored best. The bet this project is built on: it should rather fail a candidate than lie for them. I'll show a real example later.
+---
 
-## Slide How It Works: Six Agents, One Quality Loop
+## Slide 2 — The Problem & Why It Matters  ·  ~1:00
 
-Here's the architecture. Job Description and Evidence Retrieval each run once. Retrieval uses a hybrid search, part vector similarity, part keyword, so it catches both a paraphrase and an exact product name. Those feed a loop: the Resume Writer drafts, the Trust Harness scores every claim as supported, partially supported, or unsupported, and ATS Evaluation scores keyword coverage. The system builds specific feedback from whatever's weakest and tries again, always, for a configurable number of rewrites, whether or not an earlier draft already cleared both gates, then keeps whichever draft actually scored best rather than whichever one happened to pass first. A sixth agent, a cached Candidate Profile, feeds the writer without being recomputed every time. This all runs as a graph, LangGraph, which makes the loop and the stopping condition explicit and testable, not buried in ad hoc code.
+> Generative AI can write a convincing resume in seconds — that part is solved.
+> The real problem is **trust**. Nothing stops the model from stretching the
+> truth, and a fabricated claim looks exactly like a real one.
+>
+> Why does this matter? *(gesture to the three cards)*
+> - For **candidates**, one claim they can't back up can cost them their credibility.
+> - For **employers**, it means wasted time and bad hires.
+> - For **organizations**, unverifiable AI content is a real legal and reputational risk.
+>
+> So this isn't just a technical problem — it affects everyone in hiring.
 
-## Slide Built for Reliability, Not Just a Demo
+---
 
-A few engineering choices matter here because they make this deployable, not just a proof of concept. It's provider-agnostic: it runs on AWS Bedrock, OpenAI, or Google Gemini, chosen by configuration, not by rewriting code, so there's no vendor lock-in. Sampling temperature is pinned to zero, because the headline promise is a deterministic, code-computed trust score. If the same resume could score differently on two runs, that promise wouldn't hold. Models are tiered by role: a cheap model handles simple extraction, a stronger one is reserved for writing and for the verifier, the one place skimping actually hurts. And every request is scoped to one user's own data: the isolation boundary the whole trust story depends on.
+## Slide 3 — The Innovation  ·  ~1:15
 
-## Slide How We Know It Works: Measuring, Not Assuming
+*(Slow down — this is the key slide. Point to the two boxes.)*
 
-How do we know this works, rather than just hoping it does? Two layers. First, a 500-test automated suite at 99.2 percent coverage, checking correctness offline on every change. But correctness isn't quality, so there's a second, separate evaluation harness scoring the system against labeled ground truth: does retrieval surface the right evidence, does the Trust Harness classify claims correctly? That second question matters most, because the score a user sees comes straight from whatever the Harness reports. A verifier that marks everything supported would score perfectly and fail invisibly. So we score the verifier itself, against labeled examples, on a real model.
+> Here is the core innovation — and it is **not** the tech stack. It's this one
+> idea: **every claim is independently verified against the candidate's own
+> evidence, before the resume is delivered.**
+>
+> Most AI tools let the model write, and then effectively trust itself. We split
+> those two jobs. A **Writer** agent generates the resume. Then a completely
+> **separate Verifier** checks every single claim against the evidence.
+>
+> **The writer never grades its own homework.** That independent verification
+> layer is the whole point of this project.
 
-## Slide The Numbers: Retrieval Finds It, Verification Catches It
+---
 
-Here's what the data shows. On the left: retrieval finds the right evidence 100 percent of the time in our labeled test set. The Trust Harness chart is more interesting: the first version of the verifier's instructions only scored 50 percent accuracy, because it said 'be strict' without defining what that meant, so it downgraded almost everything by one notch. Explicit definitions pushed accuracy to over 83 percent, and the dangerous error, something false marked true, stayed at zero the whole time. On the right: four real runs against a production Bedrock model. Three of four fail the quality gate, on purpose. A gate that never says no isn't checking anything.
+## Slide 4 — How It Works (Methodology)  ·  ~1:00
 
-## Slide The Proof: It Would Rather Fail Than Lie
+*(Trace the loop on the diagram as you talk.)*
 
-This is the slide I most want you to remember. Same candidate, four job postings, run against a real production model, each drafted twice since the loop no longer stops the moment a draft passes. Scenario one is a genuine match: the first draft already passed, the second draft passed too but scored lower on ATS, and the system correctly kept the first one instead of whatever ran last. Scenario four matters most: an iOS posting for a backend candidate with zero iOS experience. The writer refused to invent any. Trust score: a perfect 100, because every claim was true. ATS score: zero, because the resume matches no required keyword. Trust 100, ATS 0, same résumé. That's not a bug. That's the entire product thesis, visible in two numbers. And scenario three shows the harness earning its keep under pressure: asked for scope beyond the evidence, the writer drifted toward exaggeration, and verification caught every one of those claims before anyone saw them.
+> Here's the method in one picture. Two steps run once: we read the job, and we
+> retrieve the candidate's evidence. Then a **loop** begins.
+>
+> The Writer drafts. The Verifier — our Trust Harness — scores every claim as
+> supported, partly supported, or unsupported. An ATS check scores keyword
+> coverage against the job. The system writes feedback from whatever is weakest,
+> tries again, and in the end **keeps the best-scoring draft, not just the last one.**
+>
+> Generation and verification are always separate steps in that loop.
 
-## Slide Quality Engineering Behind the Scenes
+---
 
-A quick word on the engineering behind this, because it's what makes the last slide's numbers trustworthy rather than lucky. 500 automated tests, over 99 percent coverage, enforced on every change through continuous integration. Every generation is also instrumented: tokens, time, and dollar cost per step, which in practice runs about 50 to 60 cents per résumé. And I'll be candid: several of the most important bugs, like a real model's output crashing the PDF export, or a cost-reporting gap that silently hid Bedrock's real cost, only showed up running the actual system against a real model. No unit test caught them, which is why we kept real end-to-end testing in the loop.
+## Slide 5 — System Architecture  ·  ~1:00
 
-## Slide Responsible by Design
+*(Walk left-to-right, then top-to-bottom.)*
 
-A few words on responsible design, since this touches real people's careers. Security: any external text, such as a posting or an uploaded document, is tagged as data, never an instruction, defending against prompt injection. Fairness: the same verification that catches fabrication also protects against a subtler bias: an unchecked generator would favor whichever candidate's background happens to embellish most convincingly. Privacy: every record and search is scoped to one user's own data. And I want to be upfront: the deployed API currently identifies a caller from a self-reported header. That's enough to prove isolation works, but not real authentication. That's the clearest gap before a real multi-tenant deployment.
+> A quick architecture walkthrough. On the left is the path a request takes: the
+> web UI talks over HTTP to a thin API layer, which calls one application
+> service, which calls the Orchestrator.
+>
+> In the middle are the **six agents** the Orchestrator runs in order — the green
+> ones use **no AI model at all**, so retrieval and scoring are plain, testable
+> code, not a black box. At the bottom is storage, with hybrid search that
+> combines meaning-based and keyword search.
+>
+> The key point for you: every search is scoped to **one user's own data**, and
+> the scoring logic has no AI model inside it — so the trust score is
+> **deterministic and auditable**.
 
-## Slide What's Next
+---
 
-So what's next? First, real authentication and rate limiting, needed before this serves multiple real customers safely. Second, a relevance threshold on retrieval, so a question with no good answer returns fewer results instead of forcing a full set. Third, growing the labeled dataset around the two specific claim types the verifier still occasionally misjudges. And fourth, broader language support on export, plus a clear path to scale beyond a single server. None of this is open research. It's concrete, scoped engineering work.
+## Slide 6 — Results (KPIs)  ·  ~1:00
 
-## Slide Key Takeaways
+*(Let each big number breathe.)*
 
-To close, three takeaways. One: generation and verification don't have to be the same step trusting itself. Separating them is what makes an AI system's claims checkable, not just plausible. Two: we proved it, not just claimed it. A real model, faced with a job it couldn't honestly match, chose a perfect trust score over inventing experience, and our own evaluation harness caught and let us fix a real flaw in the verifier before it reached a user. Three: this pattern isn't specific to résumés. Any AI system generating content where truthfulness matters can ground it in real evidence and check it independently before anyone sees it. Thank you, and happy to take questions.
+> Now the results — and the point is that we **measured**, we didn't assume.
+> Three headline numbers:
+> - Retrieval finds the right evidence **100%** of the time on our labeled test set.
+> - The verifier is **83.3%** accurate.
+> - And we have **99.2%** test coverage — 500 automated tests on every change.
+>
+> Here's the honest story behind that 83.3%: the first version scored only 50%,
+> because we just told it to "be strict" without defining what that meant. We
+> caught that with our own evaluation harness and calibrated it up. And the
+> **dangerous error — a false claim marked true — stayed at zero the whole time.**
 
-## Slide 13. Thank You
+---
 
-Thank you again for your time. I'd be glad to take any questions.
+## Slide 7 — The Proof  ·  ~1:15
+
+*(This is your money slide. Point to 100, then to 0.)*
+
+> This is the slide I most want you to remember. We took a **backend engineer's**
+> real resume and applied it to an **iOS Developer** job — a candidate with
+> **zero** iOS experience.
+>
+> Look at the two numbers. The **Trust Score is 100** — every claim the system
+> made was true. The **ATS match is 0** — there was no matching experience, and
+> the writer **refused to invent any**.
+>
+> So instead of faking an iOS background to pass, the system reported an honest
+> failure. **It would rather fail you than lie for you.** That's the entire
+> thesis of this project, proven on a real production model.
+
+---
+
+## Slide 8 — Responsible AI & What's Next  ·  ~0:50
+
+> Two quick things, because this touches real careers.
+>
+> First, **responsible design**: every outside input is treated as data, never
+> as an instruction — that defends against prompt injection; every user's data
+> is isolated; and the same verification that catches fabrication also keeps the
+> system **fair**.
+>
+> Second, **what's next**, in four areas: real authentication and security;
+> better retrieval quality; higher trust accuracy from a larger dataset; and
+> scalability plus more languages. I'll be honest — real login isn't built yet,
+> and it's the top priority.
+
+---
+
+## Slide 9 — Conclusion  ·  ~0:45
+
+*(Slow, confident close. This is the last thing they'll remember.)*
+
+> To conclude. The big idea is simple: **AI-generated content can be useful
+> without sacrificing trust — and the key is independent verification.**
+>
+> We didn't just claim that; we **proved it** on a real model that chose an
+> honest score over a fabricated resume. For candidates, that means a resume they
+> can stand behind. For employers, claims they can actually trust.
+>
+> And this pattern — grounded generation plus independent verification — reaches
+> far beyond resumes, to any AI-generated content where the truth matters.
+> Thank you.
+
+---
+
+## Slide 10 — Thank You / Questions  ·  ~0:15
+
+> Thank you very much for your time. I'd be glad to take any questions.
+
+---
+
+### Timing summary
+
+| # | Slide | Time |
+|---|-------|------|
+| 1 | Title & Hook | 0:30 |
+| 2 | Problem & Why It Matters | 1:00 |
+| 3 | The Innovation | 1:15 |
+| 4 | How It Works | 1:00 |
+| 5 | System Architecture | 1:00 |
+| 6 | Results (KPIs) | 1:00 |
+| 7 | The Proof | 1:15 |
+| 8 | Responsible AI & What's Next | 0:50 |
+| 9 | Conclusion | 0:45 |
+| 10 | Thank You | 0:15 |
+| | **Total** | **~8:30** |
+
+### Q&A prep — likely questions
+- **"How is 'trust' actually scored?"** Every claim is labeled supported / partly / unsupported against retrieved evidence; the score is code-computed, not the model's opinion, with temperature pinned to zero so it's repeatable.
+- **"Couldn't the verifier be wrong too?"** Yes — that's why we measure it against hand-labeled ground truth (83.3%), and why the false-positive rate (false marked true) is the metric we drove to zero.
+- **"Why not just prompt one model to 'be honest'?"** A model grading itself has no independent check. Separating writer and verifier is what makes claims *checkable* instead of just *plausible*.
+- **"What does it cost / how fast?"** ~$0.51–$0.60 per resume, measured per run (tokens, latency, cost tracked end-to-end).
